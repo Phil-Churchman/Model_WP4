@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving Impact model</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background: #f6f7f9; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  #log {
+    background: #14181d; color: #dde3ea; font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.45; padding: 12px; border-radius: 6px;
+    height: 380px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  #log .cmd  { color: #7fd1ff; }
+  #log .done { color: #7bd88f; }
+  #log .fail { color: #ff8f8f; }
+  .stage-label { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: #6c757d; }
+  .artefact { font-size: .86rem; }
+  .card { border: 1px solid #e3e6ea; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark mb-3">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">Moving Impact model</span>
+    <span class="navbar-text small mono" id="health">connecting…</span>
+  </div>
+</nav>
+
+<div class="container-fluid px-4">
+  <div class="row g-3">
+
+    <!-- Scenario ------------------------------------------------------->
+    <div class="col-lg-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="card-title">Scenario</h6>
+          <select id="scenarioSelect" class="form-select form-select-sm mb-2"></select>
+          <div id="scenarioInfo" class="small text-muted"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h6 class="card-title">Artefacts</h6>
+          <div id="artefacts"><div class="text-muted small">…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tasks ---------------------------------------------------------->
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-body">
+          <h6 class="card-title">Tasks</h6>
+          <div id="tasks"><div class="text-muted small">…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log ------------------------------------------------------------>
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="card-title mb-0">Output</h6>
+            <div>
+              <span id="jobStatus" class="badge bg-secondary">idle</span>
+              <button id="cancelBtn" class="btn btn-sm btn-outline-danger ms-1 d-none">Cancel</button>
+            </div>
+          </div>
+          <div id="log"><span class="text-muted">Select a task to run.</span></div>
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <h6 class="card-title">Recent jobs</h6>
+          <div id="jobs"><div class="text-muted small">none yet</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="text-muted small mt-3">
+    Serving the same URL space as Live Server &mdash;
+    <a href="/animation.html">animation.html</a>,
+    <a href="/utilities/station_animation.html">station_animation.html</a>,
+    <a href="/api/docs">API docs</a>.
+  </p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SCENARIOS = [], TASKS = [], currentJob = null, logOffset = 0, poller = null;
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    // Surface the server's reason rather than a bare status: the refusal
+    // message for destructive tasks is the whole point of it being a 403.
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+// ---------- scenarios ----------
+async function loadScenarios() {
+  const { scenarios } = await api("/api/scenarios");
+  SCENARIOS = scenarios;
+  const sel = $("#scenarioSelect");
+  sel.innerHTML = "";
+  for (const s of scenarios) {
+    const opt = document.createElement("option");
+    opt.value = s.file;
+    opt.textContent = s.file + (s.active ? "  (active)" : "");
+    if (s.active) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  await showScenario();
+}
+
+async function showScenario() {
+  const file = $("#scenarioSelect").value;
+  const s = await api(`/api/scenarios/${encodeURIComponent(file)}`);
+  $("#scenarioInfo").innerHTML = `
+    <div class="mono small">${s.folder}</div>
+    <div class="mt-2">
+      <span class="badge ${s.folder_exists ? "bg-success" : "bg-danger"}">
+        ${s.folder_exists ? "folder found" : "folder missing"}</span>
+      <span class="badge ${s.demand_model ? "bg-info text-dark" : "bg-light text-dark"}">
+        demand model ${s.demand_model ? "on" : "off"}</span>
+    </div>`;
+
+  const byStage = {};
+  for (const a of s.artefacts) (byStage[a.stage] ||= []).push(a);
+  $("#artefacts").innerHTML = Object.entries(byStage).map(([stage, items]) => `
+    <div class="stage-label mt-2">${stage}</div>
+    ${items.map(a => `
+      <div class="artefact d-flex justify-content-between border-bottom py-1">
+        <span>${a.exists ? "&#10003;" : "&mdash;"} ${a.label}</span>
+        <span class="text-muted">${describe(a)}</span>
+      </div>`).join("")}
+  `).join("");
+}
+
+function describe(a) {
+  if (!a.exists) return "";
+  if (a.count !== undefined) return `${a.count} files`;
+  if (a.size !== undefined) {
+    const kb = a.size / 1024;
+    return kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb.toFixed(0)} KB`;
+  }
+  return "";
+}
+
+// ---------- tasks ----------
+async function loadTasks() {
+  const { tasks } = await api("/api/tasks");
+  TASKS = tasks;
+  const byStage = {};
+  for (const t of tasks) (byStage[t.stage] ||= []).push(t);
+
+  $("#tasks").innerHTML = Object.entries(byStage).map(([stage, items]) => `
+    <div class="stage-label mt-2">${stage}</div>
+    ${items.map(t => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div class="me-2">
+          <div class="small fw-semibold">${t.label}
+            ${t.safety === "destructive"
+              ? '<span class="badge bg-warning text-dark ms-1">destructive</span>' : ""}
+          </div>
+          <div class="text-muted" style="font-size:.78rem">${t.description}</div>
+        </div>
+        <button class="btn btn-sm ${t.runnable ? "btn-primary" : "btn-outline-secondary"}"
+                data-task="${t.id}" ${t.runnable ? "" : "disabled"}
+                title="${t.runnable ? "" : "Blocked: runs from a terminal only"}">
+          Run
+        </button>
+      </div>`).join("")}
+  `).join("");
+
+  document.querySelectorAll("[data-task]").forEach(b =>
+    b.onclick = () => runTask(b.dataset.task));
+}
+
+// ---------- jobs ----------
+async function runTask(taskId) {
+  const scenario = $("#scenarioSelect").value;
+  setLog("");
+  try {
+    currentJob = await api("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: taskId, scenario })
+    });
+  } catch (e) {
+    setLog(`<span class="fail">${e.message}</span>`);
+    return;
+  }
+  logOffset = 0;
+  $("#cancelBtn").classList.remove("d-none");
+  clearInterval(poller);
+  poller = setInterval(pollLog, 400);
+  pollLog();
+}
+
+async function pollLog() {
+  if (!currentJob) return;
+  const r = await api(`/api/jobs/${currentJob.id}/log?offset=${logOffset}`);
+  logOffset = r.offset;
+  if (r.lines.length) appendLog(r.lines);
+  setStatus(r.status, r.duration_s);
+  if (r.finished) {
+    clearInterval(poller);
+    poller = null;
+    $("#cancelBtn").classList.add("d-none");
+    await showScenario();      // artefacts may have changed
+    await loadJobs();
+  }
+}
+
+function appendLog(lines) {
+  const el = $("#log");
+  if (el.querySelector(".text-muted")) el.innerHTML = "";
+  for (const line of lines) {
+    const div = document.createElement("div");
+    div.className = line.startsWith("$ ") ? "cmd"
+                  : /succeeded/.test(line) ? "done"
+                  : /failed|cancelled|Traceback|Error/.test(line) ? "fail" : "";
+    div.textContent = line;
+    el.appendChild(div);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function setLog(html) { $("#log").innerHTML = html; }
+
+function setStatus(status, duration) {
+  const cls = { running: "bg-primary", succeeded: "bg-success",
+                failed: "bg-danger", cancelled: "bg-secondary",
+                queued: "bg-secondary" }[status] || "bg-secondary";
+  $("#jobStatus").className = `badge ${cls}`;
+  $("#jobStatus").textContent = duration != null ? `${status} · ${duration}s` : status;
+}
+
+async function loadJobs() {
+  const { jobs } = await api("/api/jobs");
+  $("#jobs").innerHTML = jobs.length ? jobs.slice(0, 8).map(j => `
+    <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
+      <span>${j.task_label} <span class="text-muted mono">${j.scenario}</span></span>
+      <span class="text-muted">${j.status} · ${j.duration_s ?? "–"}s</span>
+    </div>`).join("") : '<div class="text-muted small">none yet</div>';
+}
+
+$("#cancelBtn").onclick = async () => {
+  if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" });
+};
+$("#scenarioSelect").onchange = showScenario;
+
+(async function init() {
+  try {
+    const h = await api("/api/health");
+    $("#health").textContent = h.python.split(/[\\/]/).slice(-3).join("/");
+    await loadScenarios();
+    await loadTasks();
+    await loadJobs();
+  } catch (e) {
+    $("#health").textContent = "error: " + e.message;
+  }
+})();
+</script>
+</body>
+</html>

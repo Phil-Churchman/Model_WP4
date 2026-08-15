@@ -1,15 +1,14 @@
 import os
+import sys
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FOLDER_NAME = json.load(open(os.path.join(PARENT_DIR, "scenario.json"), "r"))["folder_name"]
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import scenario_from_cli
 
-input_path = os.path.join(PARENT_DIR, FOLDER_NAME, "output","output_trips_time_queued")
-output_path = os.path.join(PARENT_DIR, FOLDER_NAME, "output")
 
 def process_agent_data(directory):
     files = [f for f in os.listdir(directory) if f.endswith(".geojson")]
@@ -52,54 +51,62 @@ def process_agent_data(directory):
             
     return pd.DataFrame(all_agent_records)
 
-# Execute processing
-# input_path = os.path.join(parent_dir, "output_trips_time_queued")
-df = process_agent_data(input_path)
+def main():
+    scenario = scenario_from_cli("Agent productivity statistics and histograms")
+    input_path = scenario.trips_time_dir
+    output_path = scenario.output_dir
 
-# Save Statistics CSV
-stats = df.groupby("label")["total_time"].agg(["max", "min", "mean", "std"]).reset_index()
-stats.columns = ["Activity Type", "Max Time (min)", "Min Time (min)", "Average Time (min)", "Std Dev (min)"]
-stats.to_csv(os.path.join(output_path, "agent_time_statistics.csv"), index=False)
+    df = process_agent_data(input_path)
 
-# Create Grid Histograms
-labels = sorted(df["label"].unique())
-cols = 2
-rows = (len(labels) + cols - 1) // cols
-fig, axes = plt.subplots(rows, cols, figsize=(14, 5 * rows))
-axes = axes.flatten()
+    # Save Statistics CSV
+    stats = df.groupby("label")["total_time"].agg(["max", "min", "mean", "std"]).reset_index()
+    stats.columns = ["Activity Type", "Max Time (min)", "Min Time (min)", "Average Time (min)", "Std Dev (min)"]
+    stats.to_csv(os.path.join(output_path, "agent_time_statistics.csv"), index=False)
 
-for i, label in enumerate(labels):
-    subset = df[df["label"] == label]["total_time"]
-    
-    t_min = int(np.floor(subset.min()))
-    t_max = int(np.ceil(subset.max()))
-    t_range = t_max - t_min
+    # Create Grid Histograms
+    labels = sorted(df["label"].unique())
+    cols = 2
+    rows = (len(labels) + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(14, 5 * rows))
+    axes = axes.flatten()
 
-    # Determine bin strategy
-    if t_range <= 20:
-        # One bin per integer, centered on the integer
-        bins = np.arange(t_min, t_max + 2) - 0.5
-    else:
-        # Limit to 20 bins for large ranges
-        # We still shift by 0.5 to encourage integer centering where possible
-        bins = np.linspace(t_min, t_max + 1, 21) - 0.5
+    for i, label in enumerate(labels):
+        subset = df[df["label"] == label]["total_time"]
 
-    # Plot histogram
-    axes[i].hist(subset, bins=bins, color='teal', edgecolor='black', alpha=0.7, rwidth=0.8)
-    
-    # Centre the x-axis with padding
-    axes[i].set_xlim(left=t_min - 1, right=t_max + 1)
-    
-    # Force integer ticks on the X axis
-    axes[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True, nbins=10))
-    
-    axes[i].set_title(label, fontweight='bold')
-    axes[i].set_xlabel("Total Time (min)")
-    axes[i].set_ylabel("Frequency")
+        t_min = int(np.floor(subset.min()))
+        t_max = int(np.ceil(subset.max()))
+        t_range = t_max - t_min
 
-# Hide unused axes
-for j in range(i + 1, len(axes)):
-    axes[j].set_visible(False)
+        # Determine bin strategy
+        if t_range <= 20:
+            # One bin per integer, centered on the integer
+            bins = np.arange(t_min, t_max + 2) - 0.5
+        else:
+            # Limit to 20 bins for large ranges
+            # We still shift by 0.5 to encourage integer centering where possible
+            bins = np.linspace(t_min, t_max + 1, 21) - 0.5
 
-plt.tight_layout()
-plt.savefig(os.path.join(output_path, "agent_time_histograms.png"))
+        # Plot histogram
+        axes[i].hist(subset, bins=bins, color='teal', edgecolor='black', alpha=0.7, rwidth=0.8)
+
+        # Centre the x-axis with padding
+        axes[i].set_xlim(left=t_min - 1, right=t_max + 1)
+
+        # Force integer ticks on the X axis
+        axes[i].xaxis.set_major_locator(ticker.MaxNLocator(integer=True, nbins=10))
+
+        axes[i].set_title(label, fontweight='bold')
+        axes[i].set_xlabel("Total Time (min)")
+        axes[i].set_ylabel("Frequency")
+
+    # Hide unused axes
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_path, "agent_time_histograms.png"))
+    print(f"Wrote agent_time_statistics.csv and agent_time_histograms.png to {output_path}")
+
+
+if __name__ == "__main__":
+    main()

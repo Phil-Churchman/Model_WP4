@@ -179,3 +179,13 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# ---------------------------------------------------------------
+# Moving Impact model
+# ---------------------------------------------------------------
+
+# Simulation results. Every run rebuilds these from scratch --
+# Simulation clear_output_dir() wipes the folder before writing --
+# and the per-agent tracks alone run to thousands of files per
+# scenario. Matches <scenario folder>/output/ at any depth.
+output/

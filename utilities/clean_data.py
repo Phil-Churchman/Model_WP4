@@ -14,31 +14,18 @@ from scipy.sparse.csgraph import connected_components
 from shapely.geometry import box
 import xml.etree.ElementTree as ET
 
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys
 
-with open(os.path.join(PARENT_DIR, "scenario.json"), "r") as f:
-    scenario_data = json.load(f)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import scenario_from_cli
 
-FOLDER_NAME = scenario_data["folder_name"]
+SCENARIO = scenario_from_cli("Clean captured GPS data")
+scenario_data = SCENARIO.cfg
+FOLDER_NAME = SCENARIO.folder_name
 
-OUTPUT_DIR = os.path.join(
-    PARENT_DIR,
-    FOLDER_NAME,
-    "captured_locations"
-)
-
-INPUT_DIR = os.path.join(
-    PARENT_DIR,
-    FOLDER_NAME,
-    "captured_locations"
-)
-
-GRAPHML_FILE = os.path.join(
-    PARENT_DIR,
-    FOLDER_NAME,
-    "geojson_files",
-    "roads.graphml"
-)
+OUTPUT_DIR = SCENARIO.captured_dir
+INPUT_DIR = SCENARIO.captured_dir
+GRAPHML_FILE = os.path.join(SCENARIO.input_dir, "roads.graphml")
 
 # ============================================================
 # HIGHWAY SPEED LIMIT DICTIONARY (KM/H)

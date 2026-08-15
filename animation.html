@@ -173,15 +173,48 @@ let globalStart = Infinity;
 let globalEnd = -Infinity;
 let currentTime, playing = false, animationId;
 
+//////////////////////////////////////////////////////////
+// LOAD DIAGNOSTICS
+//////////////////////////////////////////////////////////
+// fetch() only rejects on a network error: a 404 resolves normally and then
+// fails later inside .json(), with a parse error that says nothing about the
+// URL. So every load checks res.ok itself and records what actually went wrong.
+// Without this, a server rooted one directory too high looks exactly like a
+// simulation that produced no output.
+const loadFailures = [];
+
+function recordFailure(file, detail) {
+  loadFailures.push({ url: new URL(file, location.href).href, detail });
+}
+
+async function fetchJSON(file) {
+  const res = await fetch(file);
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// Logs every failure and returns a one-line summary, or null if all loads
+// succeeded.
+function reportFailures() {
+  if (!loadFailures.length) return null;
+  const first = loadFailures[0];
+  const summary = `${loadFailures.length} file(s) failed to load - first: ${first.url} (${first.detail})`;
+  console.error(summary);
+  console.error("Check that the web server's root is above the scenario's "
+              + "folder_name path. Failed URLs:");
+  console.table(loadFailures.slice(0, 20));
+  return summary;
+}
+
 async function loadGeoJSON(file, layer) {
   try {
-    const res = await fetch(file);
-    const geojson = await res.json();
+    const geojson = await fetchJSON(file);
     const feats = new ol.format.GeoJSON().readFeatures(geojson, { featureProjection:"EPSG:3857" });
     layer.getSource().addFeatures(feats);
     return feats;
-  } catch(e) { 
-    console.warn(`Could not load ${file}`, e); 
+  } catch(e) {
+    recordFailure(file, e.message);
+    console.warn(`Could not load ${file}`, e);
   }
 }
 
@@ -195,9 +228,13 @@ function getColor(type) {
 // TIMELINE & RENDERING
 //////////////////////////////////////////////////////////
 
-function initializeTimeline() {
+function initializeTimeline(failureSummary) {
   if (globalStart === Infinity) {
-    document.getElementById("timeLabel").innerText = "No agent data found.";
+    // Say which it was: nothing could be fetched, or it fetched fine and was
+    // empty. These need completely different fixes.
+    document.getElementById("timeLabel").innerText =
+      failureSummary ? `No agent data loaded - ${failureSummary}. See the console.`
+                     : "No agent data found.";
     return;
   }
   
@@ -382,7 +419,7 @@ async function loadScenarioAndData() {
     for(let i=0; i<NUM_AGENTS; i++){
       const file = DATA_FOLDER + FILE_PREFIX + String(i).padStart(4,"0") + FILE_SUFFIX;
       agentPromises.push(
-        fetch(file).then(r => r.json()).then(geojson => {
+        fetchJSON(file).then(geojson => {
           const readFeatures = new ol.format.GeoJSON().readFeatures(geojson, { featureProjection:'EPSG:3857' });
           readFeatures.forEach(f => {
               const props = f.getProperties();
@@ -392,12 +429,16 @@ async function loadScenarioAndData() {
               f.set("end", end);
 
               // === NEW: prepare segments ===
-              const segments = props.segments || [];
+              // segment_times is one travel time per hop; older outputs carry a
+              // full edge record per hop, of which only travel_time_s was used.
+              const times = props.segment_times
+                  || (props.segments || []).map(s => s.travel_time_s);
               let cum = 0;
-              segments.forEach(s => {
-                  s.cumStart = cum;
-                  cum += s.travel_time_s;
-                  s.cumEnd = cum;
+              const segments = times.map(t => {
+                  const seg = {travel_time_s: t, cumStart: cum};
+                  cum += t;
+                  seg.cumEnd = cum;
+                  return seg;
               });
               f.set("segments", segments);
 
@@ -405,16 +446,18 @@ async function loadScenarioAndData() {
               if (!isNaN(end)) globalEnd = Math.max(globalEnd, end);
           });
           features = features.concat(readFeatures);
-        }).catch(() => {})
+        }).catch(e => recordFailure(file, e.message))
       );
     }
 
     await Promise.all(agentPromises);
-    initializeTimeline();
+    initializeTimeline(reportFailures());
     renderFrame();
 
   } catch(e) {
     console.error("Critical error loading scenario:", e);
+    document.getElementById("timeLabel").innerText =
+      `Could not load scenario: ${e.message}. See the console.`;
   }
 }
 

@@ -1,8 +1,12 @@
 import os
+import sys
 import json
 import glob
 from datetime import datetime
 from tqdm import tqdm
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import scenario_from_cli
 
 
 def check_agent_integrity(directory):
@@ -76,9 +80,12 @@ def check_agent_integrity(directory):
         if len(discontinuity_log) > 50:
             print(f"... and {len(discontinuity_log) - 10} more.")
 
-# Execute
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FOLDER_NAME = json.load(open(os.path.join(PARENT_DIR, "scenario.json"), "r"))["folder_name"]
-OUTPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "output", "output_trips_time_queued")
-print(OUTPUT_DIR)
-check_agent_integrity(OUTPUT_DIR)
+def main():
+    scenario = scenario_from_cli("Check per-agent output for timeline discontinuities")
+    output_dir = scenario.trips_time_dir
+    print(output_dir)
+    check_agent_integrity(output_dir)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,3 +1,11 @@
 {
-    "liveServer.settings.port": 5501
+    "liveServer.settings.port": 5501,
+    // The scenario data lives in ../Model_data, outside the workspace, so it is
+    // outside Live Server's root and a "../" in a URL cannot reach it -- the URL
+    // parser discards leading "..". Mounting it at /Model_data puts it back in
+    // the served URL space, which is what scenario.json's folder_name
+    // ("..\\Model_data\\accra") resolves to in the browser.
+    "liveServer.settings.mount": [
+        ["/Model_data", "../Model_data"]
+    ]
 }

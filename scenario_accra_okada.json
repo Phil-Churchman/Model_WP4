@@ -1,5 +1,5 @@
 {
-  "folder_name": "accra - okada",
+  "folder_name": "../Model_data/accra - okada",
   "demand_model": false,
   "speed_based_routing": true,
   "agents": [

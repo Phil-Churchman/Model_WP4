@@ -1,34 +1,34 @@
-import os, json, random
+import os, sys, json, random
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import load_scenario, scenario_from_cli
+
 
 # ============================================================
-# CONFIGURATION & GLOBALS
+# CONFIGURATION
 # ============================================================
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-try:
-    with open(os.path.join(PARENT_DIR, "scenario.json"), "r") as f:
-        scenario_cfg = json.load(f)
-except FileNotFoundError:
-    with open("scenario.json", "r") as f:
-        scenario_cfg = json.load(f)
+# Resolved when generate_trips() is called, not at import. The simulation
+# imports this module before it has settled which scenario is in play, so
+# reading the config at import time would bind to the wrong one.
 
-FOLDER_NAME = scenario_cfg["folder_name"]
-INPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "geojson_files")
-OUTPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "output")
 
-FREQUENCY_FILE = os.path.join(INPUT_DIR, "demand_frequencies.json")
-DEMAND_POINTS = os.path.join(INPUT_DIR, "demand_points.geojson")
+def generate_trips(scenario=None):
+    scenario = scenario or load_scenario()
 
-d_start, d_end = scenario_cfg["start_time"], scenario_cfg["end_time"]
-DAY_START = datetime(d_start[0], d_start[1], d_start[2], d_start[3], d_start[4], d_start[5])
-DAY_END = datetime(d_end[0], d_end[1], d_end[2], d_end[3], d_end[4], d_end[5])
+    INPUT_DIR = scenario.input_dir
+    OUTPUT_DIR = scenario.output_dir
+    FREQUENCY_FILE = os.path.join(INPUT_DIR, "demand_frequencies.json")
+    DEMAND_POINTS = os.path.join(INPUT_DIR, "demand_points.geojson")
 
-def generate_trips():
+    d_start, d_end = scenario["start_time"], scenario["end_time"]
+    DAY_START = datetime(d_start[0], d_start[1], d_start[2], d_start[3], d_start[4], d_start[5])
+    DAY_END = datetime(d_end[0], d_end[1], d_end[2], d_end[3], d_end[4], d_end[5])
+
     # Load Data
     with open(FREQUENCY_FILE, 'r') as f:
         profiles = json.load(f)
-    
+
     with open(DEMAND_POINTS, 'r') as f:
         points_data = json.load(f)
 
@@ -129,4 +129,4 @@ def generate_trips():
     return output_collection
 
 if __name__ == "__main__":
-    generate_trips()
+    generate_trips(scenario_from_cli("Generate synthetic trip demand"))

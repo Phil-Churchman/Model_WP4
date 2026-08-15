@@ -10,6 +10,7 @@ Tabu Search P-Median for Swap Stations on Road Networks
 """
 
 import os
+import sys
 import json
 import networkx as nx
 import osmnx as ox
@@ -22,27 +23,31 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import load_scenario, add_scenario_argument
+
 # ---------------------------
 # ARGUMENTS
 # ---------------------------
 parser = argparse.ArgumentParser(description="Tabu Search P-Median for swap stations")
 parser.add_argument("num_locations", nargs="?", type=int, help="Number of swap stations")
 parser.add_argument("-analysis", action="store_true", help="Run analysis for 1–20 facilities")
+add_scenario_argument(parser)
 args = parser.parse_args()
 
 # ---------------------------
 # SETTINGS
 # ---------------------------
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FOLDER_NAME = json.load(open(os.path.join(PARENT_DIR, "scenario_name.json"), "r"))["folder_name"]
-INPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "geojson_files")
-OUTPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "output")
+SCENARIO = load_scenario(args.scenario)
+FOLDER_NAME = SCENARIO.folder_name
+INPUT_DIR = SCENARIO.input_dir
+OUTPUT_DIR = SCENARIO.output_dir
 NUM_LOCATIONS = args.num_locations if args.num_locations else 5
 ROAD_NETWORK_FILE = os.path.join(INPUT_DIR, "road_network.graphml")
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "facility_analysis_pmedian_tabu.csv")
 INPUT_GEOJSON = os.path.join(INPUT_DIR, "taxi_ranks.geojson")
 OUTPUT_GEOJSON = os.path.join(OUTPUT_DIR, "swap_stations_tabu.geojson")
-BOUNDARY_FILE = os.path.join(INPUT_DIR, "geojson_files", "area.geojson")
+BOUNDARY_FILE = os.path.join(INPUT_DIR, "area.geojson")
 
 # ---------------------------
 # LOAD ACCRA BOUNDARY

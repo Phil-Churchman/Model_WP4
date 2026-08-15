@@ -4,18 +4,16 @@ import osmnx as ox
 from shapely.geometry import LineString, Point, mapping
 import json
 
-PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys
 
-# Try to load scenario config; fallback to local if pathing differs
-try:
-    with open(os.path.join(PARENT_DIR, "scenario.json"), "r") as f:
-        scenario_cfg = json.load(f)
-except FileNotFoundError:
-    with open("scenario.json", "r") as f:
-        scenario_cfg = json.load(f)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scenario_config import scenario_from_cli
 
-FOLDER_NAME = scenario_cfg["folder_name"]
-INPUT_DIR = os.path.join(PARENT_DIR, FOLDER_NAME, "geojson_files")
+SCENARIO = scenario_from_cli("Download the road network for a scenario's area")
+scenario_cfg = SCENARIO.cfg
+
+FOLDER_NAME = SCENARIO.folder_name
+INPUT_DIR = SCENARIO.input_dir
 
 ROAD_SPEEDS = scenario_cfg["road_speed_km-h"]   # Default speed for roads (in km/h) if not specified in OSM data
 
