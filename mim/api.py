@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from scenario_config import MODEL_DIR, load_scenario
+from scenario_config import MODEL_DIR, load_scenario, write_scenario
 
 from . import tasks as task_registry
 from .jobs import JobManager
@@ -58,21 +58,63 @@ def scenario_summary(path):
     }
 
 
+def _newest_mtime(path):
+    """
+    Modification time of a file, or of the newest file inside a directory.
+
+    A directory's own mtime only tracks entries being added or removed, so a run
+    that rewrites the same 700 agent files in place would leave it unchanged and
+    the artefact would look older than it is.
+    """
+    if os.path.isfile(path):
+        return os.path.getmtime(path)
+    newest, count = 0.0, 0
+    with os.scandir(path) as entries:
+        for entry in entries:
+            count += 1
+            if entry.is_file():
+                newest = max(newest, entry.stat().st_mtime)
+    return newest or os.path.getmtime(path)
+
+
 def artefact_status(scenario):
-    """Existence and mtime for each pipeline artefact, for the pipeline view."""
-    out = []
-    for label, rel, stage in task_registry.ARTEFACTS:
-        path = os.path.join(scenario.folder, rel.replace("/", os.sep))
+    """
+    Existence, size and staleness for every artefact in the pipeline.
+
+    Stale means: it exists, but something it was derived from is newer. That is
+    the whole point of the board -- an out-of-date result looks exactly like an
+    up-to-date one on disk.
+    """
+    found = {}
+    for art in task_registry.ARTEFACTS:
+        path = os.path.join(scenario.folder, art.path.replace("/", os.sep))
         exists = os.path.exists(path)
-        entry = {"label": label, "stage": stage, "path": rel, "exists": exists}
+        entry = {
+            "key": art.key, "label": art.label, "stage": art.stage,
+            "path": art.path, "exists": exists, "optional": art.optional,
+            "produced_by": art.produced_by,
+            "depends_on": list(art.depends_on),
+        }
         if exists:
-            entry["modified"] = int(os.path.getmtime(path))
+            entry["modified"] = int(_newest_mtime(path))
             if os.path.isdir(path):
-                entry["count"] = len(os.listdir(path))
+                entry["count"] = sum(1 for _ in os.scandir(path))
             else:
                 entry["size"] = os.path.getsize(path)
-        out.append(entry)
-    return out
+        found[art.key] = entry
+
+    for art in task_registry.ARTEFACTS:
+        entry = found[art.key]
+        if not entry["exists"]:
+            entry["status"] = "optional" if art.optional else "missing"
+            continue
+        newer = [found[d]["label"] for d in art.depends_on
+                 if found.get(d, {}).get("exists")
+                 and found[d]["modified"] > entry["modified"]]
+        entry["status"] = "stale" if newer else "ok"
+        entry["stale_because"] = newer
+
+    return [found[a.key] for a in task_registry.ARTEFACTS]
 
 
 @app.get("/api/scenarios")
@@ -87,12 +129,64 @@ def get_scenario(name: str):
     return {
         **scenario_summary(path),
         "config": s.cfg,
+        # The client sends this back on save. If the file changed underneath --
+        # you have scenario.json open in VS Code -- the save is refused rather
+        # than silently discarding whichever edit landed first.
+        "mtime": int(os.path.getmtime(path)),
         "paths": {
             "input_dir": s.input_dir,
             "output_dir": s.output_dir,
             "captured_dir": s.captured_dir,
             "trips_time_dir": s.trips_time_dir,
         },
+        "artefacts": artefact_status(s),
+        "stages": task_registry.STAGES,
+    }
+
+
+@app.put("/api/scenarios/{name}")
+def save_scenario(name: str, payload: dict):
+    """
+    Merge changes into a scenario file.
+
+    Merged, not replaced. A form built from a known set of fields would silently
+    drop any key it does not know about -- deviation_factor exists in only one
+    of the four scenario files, and losing it would change how the simulation
+    samples passenger destinations with nothing to show for it. Keys absent from
+    the request keep their current value.
+    """
+    path = _scenario_path(name)
+    changes = payload.get("config")
+    if not isinstance(changes, dict):
+        raise HTTPException(400, "config must be an object")
+
+    current_mtime = int(os.path.getmtime(path))
+    sent_mtime = payload.get("mtime")
+    if sent_mtime is not None and int(sent_mtime) != current_mtime:
+        raise HTTPException(
+            409,
+            "The file changed on disk since you loaded it (it may be open in "
+            "your editor). Reload before saving so neither edit is lost.")
+
+    with open(path, "r", encoding="utf-8") as f:
+        merged = json.load(f)
+    merged.update(changes)
+
+    if "folder_name" not in merged or not str(merged["folder_name"]).strip():
+        raise HTTPException(400, "folder_name cannot be empty")
+    try:
+        json.dumps(merged)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(400, f"config is not serialisable: {e}")
+
+    write_scenario(path, merged)
+    s = load_scenario(path)
+    return {
+        "saved": name,
+        "mtime": int(os.path.getmtime(path)),
+        "config": s.cfg,
+        "folder": s.folder,
+        "folder_exists": os.path.isdir(s.folder),
         "artefacts": artefact_status(s),
     }
 

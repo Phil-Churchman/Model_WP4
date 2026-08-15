@@ -90,17 +90,50 @@ def is_runnable(task):
     return task.safety in RUNNABLE_SAFETY and task.exists
 
 
-# Artefacts that make up a scenario, for the pipeline view. Paths are relative
-# to the scenario folder.
+@dataclass(frozen=True)
+class Artefact:
+    key: str
+    label: str
+    path: str                        # relative to the scenario folder
+    stage: str
+    depends_on: tuple = ()           # keys of artefacts this is derived from
+    produced_by: str = None          # task id that makes it
+    optional: bool = False           # absence is normal, not a gap
+
+
+# The pipeline, as a dependency graph. An artefact older than something it was
+# derived from is stale -- which is the question the board exists to answer, and
+# the one that is impossible to hold in your head across eight scenario folders.
 ARTEFACTS = [
-    ("area.geojson", "geojson_files/area.geojson", "inputs"),
-    ("roads.graphml", "geojson_files/roads.graphml", "inputs"),
-    ("swap_stations.geojson", "geojson_files/swap_stations.geojson", "inputs"),
-    ("taxi_ranks.geojson", "geojson_files/taxi_ranks.geojson", "inputs"),
-    ("demand_points.geojson", "geojson_files/demand_points.geojson", "inputs"),
-    ("agent tracks", "output/output_trips_time_queued", "model"),
-    ("met_demand.json", "output/met_demand.json", "model"),
-    ("swap_station_timesteps.xlsx", "output/swap_station_timesteps.xlsx", "model"),
-    ("agent_time_statistics.csv", "output/agent_time_statistics.csv", "analyse"),
-    ("swap_station_visits.xlsx", "output/swap_station_visits.xlsx", "analyse"),
+    Artefact("area", "area.geojson", "geojson_files/area.geojson", "inputs",
+             produced_by="area_from_trips"),
+    Artefact("roads", "roads.graphml", "geojson_files/roads.graphml", "inputs",
+             depends_on=("area",), produced_by="extract_roads"),
+    Artefact("swap", "swap_stations.geojson", "geojson_files/swap_stations.geojson",
+             "inputs", depends_on=("area",)),
+    Artefact("ranks", "taxi_ranks.geojson", "geojson_files/taxi_ranks.geojson",
+             "inputs", depends_on=("area",), optional=True),
+    Artefact("demand", "demand_points.geojson", "geojson_files/demand_points.geojson",
+             "inputs", depends_on=("area",), optional=True),
+
+    Artefact("tracks", "agent tracks", "output/output_trips_time_queued", "model",
+             depends_on=("roads", "swap"), produced_by="simulate"),
+    Artefact("met", "met_demand.json", "output/met_demand.json", "model",
+             depends_on=("roads", "swap"), produced_by="simulate", optional=True),
+    Artefact("timesteps", "swap_station_timesteps.xlsx",
+             "output/swap_station_timesteps.xlsx", "model",
+             depends_on=("roads", "swap"), produced_by="simulate"),
+
+    Artefact("productivity", "agent_time_statistics.csv",
+             "output/agent_time_statistics.csv", "analyse",
+             depends_on=("tracks",), produced_by="productivity"),
+    Artefact("visits", "swap_station_visits.xlsx", "output/swap_station_visits.xlsx",
+             "analyse", depends_on=("tracks",), produced_by="station_visits"),
+    Artefact("arrivals", "swap_station_arrivals.csv",
+             "output/swap_station_arrivals.csv", "analyse",
+             depends_on=("tracks",), produced_by="station_utilisation"),
 ]
+
+ARTEFACTS_BY_KEY = {a.key: a for a in ARTEFACTS}
+
+STAGES = ["inputs", "model", "analyse"]

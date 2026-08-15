@@ -197,6 +197,69 @@ def load_scenario(path=None, export=False):
     return Scenario(cfg, path)
 
 
+def dumps_scenario(cfg, indent=2, inline_width=78):
+    """
+    Serialise a scenario dict the way the existing files are written by hand:
+    two-space indent, but a short array of scalars stays on one line.
+
+    json.dumps(indent=2) explodes "agents": [0,2,4,8,10,8,4,2] into ten lines,
+    which turns every save into a large diff and buries the change that was
+    actually made.
+
+    The hand-written files are not internally consistent -- "agents" has no
+    space after its commas, "start_time" does -- so no single rule reproduces
+    all of them exactly. This follows the majority style; the first save of a
+    file reformats its "agents" line by whitespace only, once, and is stable
+    from then on.
+    """
+    def fmt(value, depth):
+        pad, pad_in = " " * (indent * depth), " " * (indent * (depth + 1))
+
+        if isinstance(value, dict):
+            if not value:
+                return "{}"
+            items = [f'{pad_in}{json.dumps(k)}: {fmt(v, depth + 1)}'
+                     for k, v in value.items()]
+            return "{\n" + ",\n".join(items) + "\n" + pad + "}"
+
+        if isinstance(value, list):
+            if not value:
+                return "[]"
+            if all(isinstance(v, (int, float, bool)) or v is None for v in value):
+                oneline = "[" + ", ".join(json.dumps(v) for v in value) + "]"
+                if len(pad) + len(oneline) <= inline_width:
+                    return oneline
+            items = [pad_in + fmt(v, depth + 1) for v in value]
+            return "[\n" + ",\n".join(items) + "\n" + pad + "]"
+
+        return json.dumps(value)
+
+    return fmt(cfg, 0)
+
+
+def write_scenario(path, cfg, backup=True):
+    """
+    Write a scenario file without ever leaving a half-written one behind.
+
+    Every script loads its config at import, so a truncated scenario.json breaks
+    all of them at once. Writing to a temp file in the same directory and then
+    replacing is atomic on Windows as well as POSIX, so a reader sees either the
+    old file or the new one.
+    """
+    path = os.path.abspath(path)
+    if backup and os.path.exists(path):
+        previous = os.path.splitext(path)[0] + ".previous.json"
+        if not os.path.exists(previous):
+            import shutil
+            shutil.copy2(path, previous)
+
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(dumps_scenario(cfg))
+    os.replace(tmp, path)
+    return path
+
+
 def add_scenario_argument(parser):
     """Give a script the standard --scenario option."""
     parser.add_argument(

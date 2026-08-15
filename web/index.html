@@ -11,14 +11,25 @@
   #log {
     background: #14181d; color: #dde3ea; font-family: ui-monospace, Consolas, monospace;
     font-size: 12.5px; line-height: 1.45; padding: 12px; border-radius: 6px;
-    height: 380px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
   }
   #log .cmd  { color: #7fd1ff; }
   #log .done { color: #7bd88f; }
   #log .fail { color: #ff8f8f; }
-  .stage-label { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: #6c757d; }
-  .artefact { font-size: .86rem; }
+  .stage-label { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
+                 color: #6c757d; margin-top: .6rem; }
   .card { border: 1px solid #e3e6ea; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .art { font-size: .84rem; display: flex; justify-content: space-between;
+         align-items: center; padding: .3rem 0; border-bottom: 1px solid #f0f2f4; }
+  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
+         margin-right: .45rem; vertical-align: middle; }
+  .dot-ok       { background: #2fb344; }
+  .dot-stale    { background: #f59f00; }
+  .dot-missing  { background: #d63939; }
+  .dot-optional { background: #ced4da; }
+  .cfg-key   { font-size: .8rem; }
+  .cfg-input { font-size: .82rem; padding: .15rem .4rem; }
+  .unknown   { background: #fff8e6; }
 </style>
 </head>
 <body>
@@ -33,26 +44,44 @@
 <div class="container-fluid px-4">
   <div class="row g-3">
 
-    <!-- Scenario ------------------------------------------------------->
-    <div class="col-lg-4">
+    <!-- Scenario + editor ---------------------------------------------->
+    <div class="col-xl-4 col-lg-6">
       <div class="card mb-3">
         <div class="card-body">
-          <h6 class="card-title">Scenario</h6>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="card-title mb-0">Scenario</h6>
+            <span id="saveState" class="small text-muted"></span>
+          </div>
           <select id="scenarioSelect" class="form-select form-select-sm mb-2"></select>
-          <div id="scenarioInfo" class="small text-muted"></div>
-        </div>
-      </div>
+          <div id="scenarioInfo" class="small text-muted mb-3"></div>
 
-      <div class="card">
-        <div class="card-body">
-          <h6 class="card-title">Artefacts</h6>
-          <div id="artefacts"><div class="text-muted small">…</div></div>
+          <div id="editor"></div>
+
+          <div class="d-flex gap-2 mt-3">
+            <button id="saveBtn" class="btn btn-sm btn-primary" disabled>Save changes</button>
+            <button id="revertBtn" class="btn btn-sm btn-outline-secondary" disabled>Revert</button>
+          </div>
+          <div id="saveMsg" class="small mt-2"></div>
         </div>
       </div>
     </div>
 
-    <!-- Tasks ---------------------------------------------------------->
-    <div class="col-lg-4">
+    <!-- Pipeline board ------------------------------------------------->
+    <div class="col-xl-4 col-lg-6">
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="card-title mb-0">Pipeline</h6>
+            <span class="small text-muted">
+              <span class="dot dot-ok"></span>ok
+              <span class="dot dot-stale ms-2"></span>stale
+              <span class="dot dot-missing ms-2"></span>missing
+            </span>
+          </div>
+          <div id="board"><div class="text-muted small mt-2">…</div></div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-body">
           <h6 class="card-title">Tasks</h6>
@@ -62,7 +91,7 @@
     </div>
 
     <!-- Log ------------------------------------------------------------>
-    <div class="col-lg-4">
+    <div class="col-xl-4">
       <div class="card">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-2">
@@ -87,7 +116,7 @@
   </div>
 
   <p class="text-muted small mt-3">
-    Serving the same URL space as Live Server &mdash;
+    Same URL space as Live Server &mdash;
     <a href="/animation.html">animation.html</a>,
     <a href="/utilities/station_animation.html">station_animation.html</a>,
     <a href="/api/docs">API docs</a>.
@@ -96,24 +125,40 @@
 
 <script>
 const $ = s => document.querySelector(s);
-let SCENARIOS = [], TASKS = [], currentJob = null, logOffset = 0, poller = null;
+let TASKS = [], SCENARIO = null, EDITS = {}, currentJob = null, logOffset = 0, poller = null;
+
+// Fields the editor exposes with a typed control. Anything in the file but not
+// listed here is still shown and still saved -- the server merges rather than
+// replaces, so an unrecognised key can never be dropped by saving.
+const FIELDS = [
+  ["folder_name",          "text",   "Path to the scenario folder, relative to Model/"],
+  ["demand_model",         "bool",   "Use generated demand instead of taxi ranks"],
+  ["speed_based_routing",  "bool",   "Route on travel time rather than distance"],
+  ["agents",               "ints",   "Fleet size per period, comma separated"],
+  ["animation_agents",     "int",    "How many agents animation.html loads"],
+  ["probability_hail",     "float",  ""],
+  ["swap_wait_sec",        "int",    ""],
+  ["max_total_distance_m", "int",    ""],
+  ["buffer_distance",      "int",    ""],
+  ["passenger_max_dist",   "int",    ""],
+  ["simulation_step_sec",  "int",    ""],
+  ["deviation_factor",     "float",  ""],
+];
+const FIELD_KEYS = new Set(FIELDS.map(f => f[0]));
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) {
-    // Surface the server's reason rather than a bare status: the refusal
-    // message for destructive tasks is the whole point of it being a 403.
     let detail = `HTTP ${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(detail);
+    const err = new Error(detail); err.status = res.status; throw err;
   }
   return res.json();
 }
 
-// ---------- scenarios ----------
+// ---------- scenario ----------
 async function loadScenarios() {
   const { scenarios } = await api("/api/scenarios");
-  SCENARIOS = scenarios;
   const sel = $("#scenarioSelect");
   sel.innerHTML = "";
   for (const s of scenarios) {
@@ -127,37 +172,141 @@ async function loadScenarios() {
 }
 
 async function showScenario() {
-  const file = $("#scenarioSelect").value;
-  const s = await api(`/api/scenarios/${encodeURIComponent(file)}`);
+  SCENARIO = await api(`/api/scenarios/${encodeURIComponent($("#scenarioSelect").value)}`);
+  EDITS = {};
+  markClean();
   $("#scenarioInfo").innerHTML = `
-    <div class="mono small">${s.folder}</div>
-    <div class="mt-2">
-      <span class="badge ${s.folder_exists ? "bg-success" : "bg-danger"}">
-        ${s.folder_exists ? "folder found" : "folder missing"}</span>
-      <span class="badge ${s.demand_model ? "bg-info text-dark" : "bg-light text-dark"}">
-        demand model ${s.demand_model ? "on" : "off"}</span>
-    </div>`;
+    <div class="mono" style="font-size:.78rem">${SCENARIO.folder}</div>
+    <span class="badge ${SCENARIO.folder_exists ? "bg-success" : "bg-danger"} mt-1">
+      ${SCENARIO.folder_exists ? "folder found" : "folder missing"}</span>`;
+  renderEditor();
+  renderBoard();
+}
 
+// ---------- editor ----------
+function renderEditor() {
+  const cfg = SCENARIO.config;
+  const rows = [];
+
+  for (const [key, type, help] of FIELDS) {
+    if (!(key in cfg)) continue;                    // absent keys are not invented
+    rows.push(fieldRow(key, type, cfg[key], help));
+  }
+
+  const unknown = Object.keys(cfg).filter(k => !FIELD_KEYS.has(k));
+  if (unknown.length) {
+    rows.push(`<div class="stage-label">not editable here &mdash; preserved on save</div>`);
+    for (const k of unknown) {
+      const preview = JSON.stringify(cfg[k]);
+      rows.push(`<div class="art unknown px-2">
+          <span class="cfg-key mono">${k}</span>
+          <span class="text-muted mono" style="font-size:.74rem">${
+            preview.length > 34 ? preview.slice(0, 34) + "…" : preview}</span>
+        </div>`);
+    }
+  }
+  $("#editor").innerHTML = rows.join("");
+
+  $("#editor").querySelectorAll("[data-key]").forEach(el => {
+    el.oninput = el.onchange = () => {
+      const key = el.dataset.key, type = el.dataset.type;
+      let value;
+      try {
+        value = parseField(type, el.type === "checkbox" ? el.checked : el.value);
+      } catch { el.classList.add("is-invalid"); return; }
+      el.classList.remove("is-invalid");
+      if (JSON.stringify(value) === JSON.stringify(SCENARIO.config[key])) delete EDITS[key];
+      else EDITS[key] = value;
+      markDirty();
+    };
+  });
+}
+
+function fieldRow(key, type, value, help) {
+  const common = `data-key="${key}" data-type="${type}" class="form-control form-control-sm cfg-input"`;
+  let control;
+  if (type === "bool") {
+    control = `<input type="checkbox" data-key="${key}" data-type="bool"
+                 class="form-check-input" ${value ? "checked" : ""}>`;
+  } else if (type === "ints") {
+    control = `<input type="text" ${common} value="${value.join(", ")}" style="max-width:15rem">`;
+  } else {
+    control = `<input type="${type === "text" ? "text" : "number"}"
+                 ${type === "float" ? 'step="any"' : ""} ${common}
+                 value="${String(value).replace(/"/g, "&quot;")}" style="max-width:15rem">`;
+  }
+  return `<div class="art">
+      <span class="cfg-key mono" title="${help}">${key}</span>
+      <span>${control}</span>
+    </div>`;
+}
+
+function parseField(type, raw) {
+  if (type === "bool")  return !!raw;
+  if (type === "int")   { const n = parseInt(raw, 10); if (isNaN(n)) throw 0; return n; }
+  if (type === "float") { const n = parseFloat(raw);   if (isNaN(n)) throw 0; return n; }
+  if (type === "ints")  {
+    const parts = String(raw).split(",").map(s => s.trim()).filter(Boolean);
+    const nums = parts.map(p => { const n = parseInt(p, 10); if (isNaN(n)) throw 0; return n; });
+    if (!nums.length) throw 0;
+    return nums;
+  }
+  return String(raw);
+}
+
+function markDirty() {
+  const n = Object.keys(EDITS).length;
+  $("#saveBtn").disabled = $("#revertBtn").disabled = n === 0;
+  $("#saveState").textContent = n ? `${n} unsaved change${n > 1 ? "s" : ""}` : "";
+  $("#saveState").className = "small " + (n ? "text-warning-emphasis fw-semibold" : "text-muted");
+}
+function markClean() { EDITS = {}; markDirty(); $("#saveMsg").textContent = ""; }
+
+$("#saveBtn").onclick = async () => {
+  $("#saveBtn").disabled = true;
+  try {
+    const r = await api(`/api/scenarios/${encodeURIComponent(SCENARIO.file)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: EDITS, mtime: SCENARIO.mtime })
+    });
+    SCENARIO = { ...SCENARIO, ...r };
+    markClean();
+    $("#saveMsg").innerHTML = `<span class="text-success">Saved.</span>`;
+    renderEditor(); renderBoard();
+  } catch (e) {
+    $("#saveMsg").innerHTML = `<span class="text-danger">${e.message}</span>` +
+      (e.status === 409 ? ` <button class="btn btn-sm btn-link p-0" onclick="showScenario()">reload</button>` : "");
+    $("#saveBtn").disabled = false;
+  }
+};
+$("#revertBtn").onclick = () => { renderEditor(); markClean(); };
+
+// ---------- pipeline board ----------
+function renderBoard() {
   const byStage = {};
-  for (const a of s.artefacts) (byStage[a.stage] ||= []).push(a);
-  $("#artefacts").innerHTML = Object.entries(byStage).map(([stage, items]) => `
-    <div class="stage-label mt-2">${stage}</div>
-    ${items.map(a => `
-      <div class="artefact d-flex justify-content-between border-bottom py-1">
-        <span>${a.exists ? "&#10003;" : "&mdash;"} ${a.label}</span>
-        <span class="text-muted">${describe(a)}</span>
-      </div>`).join("")}
-  `).join("");
+  for (const a of SCENARIO.artefacts) (byStage[a.stage] ||= []).push(a);
+
+  $("#board").innerHTML = (SCENARIO.stages || Object.keys(byStage)).map(stage => {
+    const items = byStage[stage] || [];
+    return `<div class="stage-label">${stage}</div>` + items.map(a => `
+      <div class="art" title="${a.path}">
+        <span><span class="dot dot-${a.status}"></span>${a.label}</span>
+        <span class="text-muted" style="font-size:.78rem">${describe(a)}</span>
+      </div>`).join("");
+  }).join("");
 }
 
 function describe(a) {
-  if (!a.exists) return "";
+  if (a.status === "missing")  return "missing";
+  if (a.status === "optional") return "not used";
+  if (a.status === "stale")
+    return `stale &mdash; ${a.stale_because.join(", ")} is newer`;
   if (a.count !== undefined) return `${a.count} files`;
   if (a.size !== undefined) {
     const kb = a.size / 1024;
-    return kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb.toFixed(0)} KB`;
+    return kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`;
   }
-  return "";
+  return "ok";
 }
 
 // ---------- tasks ----------
@@ -168,7 +317,7 @@ async function loadTasks() {
   for (const t of tasks) (byStage[t.stage] ||= []).push(t);
 
   $("#tasks").innerHTML = Object.entries(byStage).map(([stage, items]) => `
-    <div class="stage-label mt-2">${stage}</div>
+    <div class="stage-label">${stage}</div>
     ${items.map(t => `
       <div class="d-flex justify-content-between align-items-center border-bottom py-2">
         <div class="me-2">
@@ -176,13 +325,11 @@ async function loadTasks() {
             ${t.safety === "destructive"
               ? '<span class="badge bg-warning text-dark ms-1">destructive</span>' : ""}
           </div>
-          <div class="text-muted" style="font-size:.78rem">${t.description}</div>
+          <div class="text-muted" style="font-size:.76rem">${t.description}</div>
         </div>
         <button class="btn btn-sm ${t.runnable ? "btn-primary" : "btn-outline-secondary"}"
                 data-task="${t.id}" ${t.runnable ? "" : "disabled"}
-                title="${t.runnable ? "" : "Blocked: runs from a terminal only"}">
-          Run
-        </button>
+                title="${t.runnable ? "" : "Blocked: run this from a terminal"}">Run</button>
       </div>`).join("")}
   `).join("");
 
@@ -192,18 +339,13 @@ async function loadTasks() {
 
 // ---------- jobs ----------
 async function runTask(taskId) {
-  const scenario = $("#scenarioSelect").value;
   setLog("");
   try {
     currentJob = await api("/api/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task: taskId, scenario })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: taskId, scenario: $("#scenarioSelect").value })
     });
-  } catch (e) {
-    setLog(`<span class="fail">${e.message}</span>`);
-    return;
-  }
+  } catch (e) { setLog(`<span class="fail">${e.message}</span>`); return; }
   logOffset = 0;
   $("#cancelBtn").classList.remove("d-none");
   clearInterval(poller);
@@ -218,10 +360,9 @@ async function pollLog() {
   if (r.lines.length) appendLog(r.lines);
   setStatus(r.status, r.duration_s);
   if (r.finished) {
-    clearInterval(poller);
-    poller = null;
+    clearInterval(poller); poller = null;
     $("#cancelBtn").classList.add("d-none");
-    await showScenario();      // artefacts may have changed
+    await showScenario();          // artefacts and staleness may have moved
     await loadJobs();
   }
 }
@@ -239,13 +380,11 @@ function appendLog(lines) {
   }
   el.scrollTop = el.scrollHeight;
 }
-
 function setLog(html) { $("#log").innerHTML = html; }
 
 function setStatus(status, duration) {
-  const cls = { running: "bg-primary", succeeded: "bg-success",
-                failed: "bg-danger", cancelled: "bg-secondary",
-                queued: "bg-secondary" }[status] || "bg-secondary";
+  const cls = { running: "bg-primary", succeeded: "bg-success", failed: "bg-danger",
+                cancelled: "bg-secondary", queued: "bg-secondary" }[status] || "bg-secondary";
   $("#jobStatus").className = `badge ${cls}`;
   $("#jobStatus").textContent = duration != null ? `${status} · ${duration}s` : status;
 }
@@ -253,7 +392,7 @@ function setStatus(status, duration) {
 async function loadJobs() {
   const { jobs } = await api("/api/jobs");
   $("#jobs").innerHTML = jobs.length ? jobs.slice(0, 8).map(j => `
-    <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
+    <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.8rem">
       <span>${j.task_label} <span class="text-muted mono">${j.scenario}</span></span>
       <span class="text-muted">${j.status} · ${j.duration_s ?? "–"}s</span>
     </div>`).join("") : '<div class="text-muted small">none yet</div>';
@@ -262,7 +401,11 @@ async function loadJobs() {
 $("#cancelBtn").onclick = async () => {
   if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" });
 };
-$("#scenarioSelect").onchange = showScenario;
+$("#scenarioSelect").onchange = () => {
+  if (Object.keys(EDITS).length &&
+      !confirm("Discard unsaved changes to this scenario?")) return;
+  showScenario();
+};
 
 (async function init() {
   try {
@@ -271,9 +414,7 @@ $("#scenarioSelect").onchange = showScenario;
     await loadScenarios();
     await loadTasks();
     await loadJobs();
-  } catch (e) {
-    $("#health").textContent = "error: " + e.message;
-  }
+  } catch (e) { $("#health").textContent = "error: " + e.message; }
 })();
 </script>
 </body>
