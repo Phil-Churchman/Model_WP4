@@ -1,0 +1,29 @@
+{
+  "road_speed_km-h": {
+    "trunk": 49,
+    "trunk_link": 31,
+    "motorway": 59,
+    "motorway_link": 30,
+    "primary": 32,
+    "primary_link": 42,
+    "secondary": 29,
+    "secondary_link": 40,
+    "tertiary": 28,
+    "tertiary_link": 11,
+    "residential": 18,
+    "unclassified": 20,
+    "service": 16,
+    "footway": 16,
+    "pedestrian": 16,
+    "track": 46,
+    "cycleway": 22,
+    "path": 16,
+    "steps": 0,
+    "services": 0,
+    "rest_area": 0,
+    "corridor": 1,
+    "raceway": 0,
+    "living_street": 12,
+    "road": 20
+  }
+}

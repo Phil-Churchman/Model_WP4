@@ -5,6 +5,10 @@
 <title>Swap Station Viewer & Queue Animator</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@7.5.2/ol.css">
+<!-- Apple-style design layer. Must load after bootstrap so it can
+     override its custom properties. Relative href so the page works
+     under both the model server and Live Server. -->
+<link href="../web/css/apple.css" rel="stylesheet">
 <!-- SheetJS for parsing XLSX files -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -17,7 +21,7 @@ html, body {
   display: flex;
   flex-direction: column;
 }
-#controls { padding:10px; background:#f4f4f4; display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+#controls { padding:10px; background:var(--ap-surface); border-bottom:1px solid var(--ap-hairline); display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 #map { flex: 1; width: 100%; }
 
 /* Custom Station Animation Modal Styling */
@@ -175,15 +179,34 @@ let lastRenderedQueueState = [];
 
 const stationModal = new bootstrap.Modal(document.getElementById('stationModal'));
 
+// Which scenario to display. The control panel links here with ?scenario=<file>
+// so the page follows its picker; opened directly -- typed in, bookmarked, or
+// served by Live Server -- there is no parameter and it falls back to
+// scenario.json, exactly as it always did.
+function scenarioFile() {
+  const asked = new URLSearchParams(location.search).get('scenario');
+  if (!asked) return 'scenario.json';
+  // Bare filename only. This value becomes part of a URL, and a stray path
+  // would fail as a confusing 404 rather than as a clear refusal.
+  const name = asked.split(/[\\/]/).pop();
+  if (!/^scenario[\w.-]*\.json$/i.test(name)) {
+    console.warn(`Ignoring unusable ?scenario=${asked}; using scenario.json`);
+    return 'scenario.json';
+  }
+  return name;
+}
+const SCENARIO_FILE = scenarioFile();
+
 // ---------- Auto-Loading Logic ----------
 async function autoLoadData() {
   try {
-    const scenarioResp = await fetch('../scenario.json');
-    if (!scenarioResp.ok) throw new Error('Could not fetch ../scenario.json');
+    const scenarioResp = await fetch(`../${SCENARIO_FILE}`);
+    if (!scenarioResp.ok) throw new Error(`Could not fetch ../${SCENARIO_FILE}`);
     const scenarioData = await scenarioResp.json();
     const folderName = scenarioData.folder_name;
 
-    if (!folderName) throw new Error('folder_name not found in scenario.json');
+    if (!folderName) throw new Error(`folder_name not found in ${SCENARIO_FILE}`);
+    document.title = `Swap Stations - ${folderName}`;
 
     const areaPath = `../${folderName}/geojson_files/area.geojson`;
     const stationsPath = `../${folderName}/geojson_files/swap_stations.geojson`;

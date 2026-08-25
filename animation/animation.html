@@ -8,6 +8,10 @@
 <script src="https://cdn.jsdelivr.net/npm/ol@7.5.2/dist/ol.js"></script>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Apple-style design layer. Must load after bootstrap so it can
+     override its custom properties. Relative href so the page works
+     under both the model server and Live Server. -->
+<link href="../web/css/apple.css" rel="stylesheet">
 
 <style>
 html, body {
@@ -24,8 +28,8 @@ html, body {
 }
 #controls {
   padding: 10px;
-  background: #f8f9fa;
-  font-family: Arial;
+  background: var(--ap-surface);
+  border-top: 1px solid var(--ap-hairline);
 }
 #controls .form-range {
   width: 100%;
@@ -33,6 +37,8 @@ html, body {
 #legend { margin-top:10px; }
 .legend-item { display:inline-flex; align-items:center; margin-right:15px; font-size:14px; }
 .legend-circle { width:15px; height:15px; border-radius:50%; display:inline-block; margin-right:3px; }
+/* Idle draws smaller on the map, so its swatch matches the same ratio. */
+.legend-circle-sm { width:7px; height:7px; }
 .legend-star {
   width:15px; height:15px;
   clip-path: polygon(
@@ -67,6 +73,8 @@ html, body {
     <div class="d-flex align-items-center mb-1">
       <label class="form-label mb-0 me-2">Timeline:</label>
       <span id="timeLabel" class="ms-2">Waiting for data...</span>
+      <span id="scenarioLabel" class="ms-auto badge bg-light text-secondary border"
+            title="Which scenario file this page is showing"></span>
     </div>
     <input type="range" id="timeSlider" class="form-range">
   </div>
@@ -91,7 +99,7 @@ html, body {
         <span class="legend-circle mx-1" style="background:red;"></span>Swap
       </span>
       <span id="idleLegend" class="legend-item d-flex align-items-center me-3">
-        <span class="legend-circle mx-1" style="background:black;"></span>Idle
+        <span class="legend-circle legend-circle-sm mx-1" style="background:black;"></span>Idle
       </span>
 
       <strong class="ms-3 me-2">Locations:</strong>
@@ -114,6 +122,32 @@ html, body {
 
 const FILE_PREFIX = "agent_";
 const FILE_SUFFIX = "_time.geojson";
+
+// Marker sizes, in pixels.
+const STOP_RADIUS = 7;   // a stop that means something: swap, pickup, hail, rank
+const IDLE_RADIUS = 3;   // parked between trips
+
+// Which scenario to display. The control panel links here with ?scenario=<file>
+// so the page follows its picker; opened directly -- typed in, bookmarked, or
+// served by Live Server -- there is no parameter and it falls back to
+// scenario.json, exactly as it always did.
+function scenarioFile() {
+  const asked = new URLSearchParams(location.search).get("scenario");
+  if (!asked) return "scenario.json";
+  // Bare filename only. This value becomes part of a URL, and a stray path
+  // would fail as a confusing 404 rather than as a clear refusal.
+  const name = asked.split(/[\\/]/).pop();
+  if (!/^scenario[\w.-]*\.json$/i.test(name)) {
+    console.warn(`Ignoring unusable ?scenario=${asked}; using scenario.json`);
+    return "scenario.json";
+  }
+  return name;
+}
+const SCENARIO_FILE = scenarioFile();
+// This page lives in animation/, so everything the scenario refers to is
+// resolved against the Model folder one level up rather than against here.
+const MODEL_ROOT = new URL("../", location.href);
+const SCENARIO_URL = new URL(SCENARIO_FILE, MODEL_ROOT).href;
 
 let DATA_FOLDER = "";
 let AREA_FILE = "";
@@ -317,12 +351,16 @@ if (geom.getType() === "LineString") {
 }
     
     else if(geom.getType() === "Point") {
+      // Idle is the filler between trips, so it is both the commonest marker
+      // and the least interesting one. Drawn at the same size as a swap or a
+      // pickup it crowds them out, so it gets a smaller dot and a thinner ring.
+      const isIdle = tripType === "idle";
       const stationary = new ol.Feature(new ol.geom.Point(geom.getCoordinates()));
       stationary.setStyle(new ol.style.Style({
-        image: new ol.style.Circle({ 
-            radius:7, 
-            fill:new ol.style.Fill({color}), 
-            stroke:new ol.style.Stroke({color:"#000", width:2}) 
+        image: new ol.style.Circle({
+            radius: isIdle ? IDLE_RADIUS : STOP_RADIUS,
+            fill:new ol.style.Fill({color}),
+            stroke:new ol.style.Stroke({color:"#000", width: isIdle ? 1 : 2})
         })
       }));
       source.addFeature(stationary);
@@ -380,15 +418,26 @@ document.getElementById("timeSlider").oninput = function() {
 
 async function loadScenarioAndData() {
   try {
-    const res = await fetch("scenario.json");
-    const scenario = await res.json();
+    const scenario = await fetchJSON(SCENARIO_URL);
+    const label = document.getElementById("scenarioLabel");
+    if (label) label.textContent = `${SCENARIO_FILE} - ${scenario.folder_name}`;
     const folder = scenario.folder_name;
-    DEMAND_MODEL = scenario.demand_model;
-    DATA_FOLDER = folder + "/output/output_trips_time_queued/";
-    AREA_FILE = folder + "/geojson_files/area.geojson";
-    SWAP_FILE = folder + "/geojson_files/swap_stations.geojson"; 
+    // Only hail_rank has taxi ranks; the other two modes place pickups anywhere,
+    // so they share the pickup legend and have no rank layer to draw.
+    SIM_MODE = scenario.simulation_mode
+      || (scenario.demand_model ? "demand_model" : "hail_rank");
+    DEMAND_MODEL = SIM_MODE !== "hail_rank";
+
+    // folder_name is relative to the Model folder, and this page is one level
+    // inside it. Resolving through the URL API rather than concatenating means
+    // both styles work: "../Model_data/nairobi" (data outside Model, served
+    // from its own mount) and a bare "accra" (data inside Model).
+    const DATA_ROOT = new URL(folder + "/", MODEL_ROOT);
+    DATA_FOLDER = new URL("output/output_trips_time_queued/", DATA_ROOT).href;
+    AREA_FILE = new URL("geojson_files/area.geojson", DATA_ROOT).href;
+    SWAP_FILE = new URL("geojson_files/swap_stations.geojson", DATA_ROOT).href;
     if (!DEMAND_MODEL) {
-      RANK_FILE = folder + "/geojson_files/taxi_ranks.geojson";
+      RANK_FILE = new URL("geojson_files/taxi_ranks.geojson", DATA_ROOT).href;
     }
     
     NUM_AGENTS = scenario.animation_agents;

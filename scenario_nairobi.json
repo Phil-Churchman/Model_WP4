@@ -1,6 +1,8 @@
 {
-  "folder_name": "../Model_data/bechem",
+  "note": "Road speeds updated based on calibration with captured trips from Nairobi, Kenya.",
+  "folder_name": "../Model_data/nairobi",
   "sync_evtracs": true,
+  "evtracs_model_type": "calibration",
   "simulation_mode": "demand_model",
   "speed_based_routing": true,
   "agents": [0, 2, 4, 8, 10, 8, 4, 2],

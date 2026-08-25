@@ -1,0 +1,203 @@
+{
+  "_comment": [
+    "Trip distributions for simulation_mode = 'distribution'.",
+    "distance_distribution is the ROAD distance of an observed trip. The",
+    "simulation divides a drawn band by deviation_factor (scenario.json) to",
+    "get the straight-line radius it samples a target node inside, because a",
+    "road route is longer than the crow-flies distance it covers.",
+    "wait_distribution is the fare wait: the gap between one trip ending and",
+    "the same vehicle's next trip starting on the same day.",
+    "Bins may be edited by hand; 'weight' is relative, so raw counts are fine."
+  ],
+  "_provenance": {
+    "source": "Model_data/nairobi/captured_locations/chained_trip_data.csv",
+    "rows_in_source": 49767,
+    "trips_used": 49736,
+    "gaps_used": 47973,
+    "filters": [
+      "avg_speed_kmh <= 110.0",
+      "distance_km > 0",
+      "gap between 0 and 240 min, first trip of a day excluded"
+    ]
+  },
+  "distance_distribution": {
+    "units": "km",
+    "bins": [
+      {
+        "min": 0.0,
+        "max": 0.25,
+        "weight": 2085
+      },
+      {
+        "min": 0.25,
+        "max": 0.5,
+        "weight": 6508
+      },
+      {
+        "min": 0.5,
+        "max": 0.75,
+        "weight": 5370
+      },
+      {
+        "min": 0.75,
+        "max": 1.0,
+        "weight": 4736
+      },
+      {
+        "min": 1.0,
+        "max": 1.5,
+        "weight": 7589
+      },
+      {
+        "min": 1.5,
+        "max": 2.0,
+        "weight": 5383
+      },
+      {
+        "min": 2.0,
+        "max": 2.5,
+        "weight": 3785
+      },
+      {
+        "min": 2.5,
+        "max": 3.0,
+        "weight": 2586
+      },
+      {
+        "min": 3.0,
+        "max": 4.0,
+        "weight": 3749
+      },
+      {
+        "min": 4.0,
+        "max": 5.0,
+        "weight": 2199
+      },
+      {
+        "min": 5.0,
+        "max": 6.0,
+        "weight": 1488
+      },
+      {
+        "min": 6.0,
+        "max": 8.0,
+        "weight": 1660
+      },
+      {
+        "min": 8.0,
+        "max": 10.0,
+        "weight": 948
+      },
+      {
+        "min": 10.0,
+        "max": 12.5,
+        "weight": 634
+      },
+      {
+        "min": 12.5,
+        "max": 15.0,
+        "weight": 413
+      },
+      {
+        "min": 15.0,
+        "max": 20.0,
+        "weight": 372
+      },
+      {
+        "min": 20.0,
+        "max": 25.0,
+        "weight": 131
+      },
+      {
+        "min": 25.0,
+        "max": 30.0,
+        "weight": 53
+      },
+      {
+        "min": 30.0,
+        "max": 40.0,
+        "weight": 47
+      }
+    ]
+  },
+  "wait_distribution": {
+    "units": "min",
+    "bins": [
+      {
+        "min": 0.0,
+        "max": 1.0,
+        "weight": 8444
+      },
+      {
+        "min": 1.0,
+        "max": 2.0,
+        "weight": 7256
+      },
+      {
+        "min": 2.0,
+        "max": 3.0,
+        "weight": 4178
+      },
+      {
+        "min": 3.0,
+        "max": 5.0,
+        "weight": 5345
+      },
+      {
+        "min": 5.0,
+        "max": 7.5,
+        "weight": 4596
+      },
+      {
+        "min": 7.5,
+        "max": 10.0,
+        "weight": 2014
+      },
+      {
+        "min": 10.0,
+        "max": 15.0,
+        "weight": 3895
+      },
+      {
+        "min": 15.0,
+        "max": 20.0,
+        "weight": 2500
+      },
+      {
+        "min": 20.0,
+        "max": 30.0,
+        "weight": 2950
+      },
+      {
+        "min": 30.0,
+        "max": 45.0,
+        "weight": 2497
+      },
+      {
+        "min": 45.0,
+        "max": 60.0,
+        "weight": 1526
+      },
+      {
+        "min": 60.0,
+        "max": 90.0,
+        "weight": 1427
+      },
+      {
+        "min": 90.0,
+        "max": 120.0,
+        "weight": 641
+      },
+      {
+        "min": 120.0,
+        "max": 180.0,
+        "weight": 510
+      },
+      {
+        "min": 180.0,
+        "max": 240.0,
+        "weight": 194
+      }
+    ]
+  }
+}

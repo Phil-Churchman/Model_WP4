@@ -3,136 +3,295 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moving Impact model</title>
+<title>EV-TRACS Control Panel</title>
+
+<!-- Load order matters: bootstrap -> bootstrap-icons -> apple.css, which
+     overrides Bootstrap's custom properties so stock cards, buttons, forms and
+     badges inherit the look without markup changes. Same layer as EV-TRACS. -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<link href="css/apple.css" rel="stylesheet">
+
 <style>
-  body { background: #f6f7f9; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  #log {
-    background: #14181d; color: #dde3ea; font-family: ui-monospace, Consolas, monospace;
-    font-size: 12.5px; line-height: 1.45; padding: 12px; border-radius: 6px;
-    height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  /* Only what the design layer does not already cover. Everything here draws
+     on its tokens rather than inventing new colours. */
+
+  .mono { font-family: var(--ap-font-mono); }
+
+  /* The design layer sizes the brand image as a 26px square app icon. This is a
+     wide wordmark (776x376), so keep its aspect ratio and drop the rounding
+     rather than squashing it into a square. */
+  .ap-nav .navbar-brand img {
+    width: auto;
+    height: 30px;
+    border-radius: 0;
   }
-  #log .cmd  { color: #7fd1ff; }
-  #log .done { color: #7bd88f; }
-  #log .fail { color: #ff8f8f; }
-  .stage-label { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
-                 color: #6c757d; margin-top: .6rem; }
-  .card { border: 1px solid #e3e6ea; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-  .art { font-size: .84rem; display: flex; justify-content: space-between;
-         align-items: center; padding: .3rem 0; border-bottom: 1px solid #f0f2f4; }
-  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
-         margin-right: .45rem; vertical-align: middle; }
-  .dot-ok       { background: #2fb344; }
-  .dot-stale    { background: #f59f00; }
-  .dot-missing  { background: #d63939; }
-  .dot-optional { background: #ced4da; }
-  .cfg-key   { font-size: .8rem; }
-  .cfg-input { font-size: .82rem; padding: .15rem .4rem; }
-  .unknown   { background: #fff8e6; }
+
+  /* Pipeline status dots ------------------------------------------------ */
+  .dot {
+    display: inline-block; width: .55rem; height: .55rem; border-radius: 50%;
+    margin-right: .5rem; flex: none;
+  }
+  .dot-ok       { background: var(--ap-green); }
+  .dot-stale    { background: var(--ap-orange); }
+  .dot-missing  { background: var(--ap-red); }
+  .dot-optional { background: var(--ap-fill-hover); }
+
+  /* One row of a list: artefact, tool or config field ------------------- */
+  .row-item {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: .75rem; padding: .45rem .25rem;
+    border-bottom: 1px solid var(--ap-hairline);
+    font-size: .875rem;
+  }
+  .row-item:last-child { border-bottom: 0; }
+
+  a.row-item {
+    text-decoration: none; color: inherit;
+    border-radius: var(--ap-r-sm); padding-inline: .5rem;
+    transition: background var(--ap-dur) var(--ap-ease);
+  }
+  a.row-item:hover { background: var(--ap-blue-soft); }
+
+  .row-note { color: var(--ap-ink-4); font-size: .8125rem; }
+
+  .group-label {
+    font-size: .6875rem; font-weight: 600; letter-spacing: .045em;
+    text-transform: uppercase; color: var(--ap-ink-4);
+    margin: 1rem 0 .25rem;
+  }
+  .group-label:first-child { margin-top: .25rem; }
+
+  /* Console ------------------------------------------------------------- */
+  #log { height: 320px; border-radius: var(--ap-r-md); }
+  #log .cmd  { color: var(--ap-blue); }
+  #log .done { color: var(--ap-green); }
+  #log .fail { color: var(--ap-red); }
+
+  /* Config editor ------------------------------------------------------- */
+  .cfg-input { max-width: 14rem; }
+  .row-item.is-readonly { background: var(--ap-fill); border-radius: var(--ap-r-sm); }
 </style>
 </head>
 <body>
 
-<nav class="navbar navbar-dark bg-dark mb-3">
-  <div class="container-fluid">
-    <span class="navbar-brand mb-0 h1">Moving Impact model</span>
-    <span class="navbar-text small mono" id="health">connecting…</span>
+<nav class="navbar navbar-expand-md sticky-top ap-nav">
+  <div class="container-fluid px-3 px-md-4">
+    <a class="navbar-brand" href="/app/">
+      <img src="img/moving-impact-logo.png" alt="Moving Impact">
+    </a>
+    <span id="health" class="ap-pill"><span class="mono">connecting…</span></span>
   </div>
 </nav>
 
-<div class="container-fluid px-4">
-  <div class="row g-3">
+<div class="ap-shell ap-shell-wide">
+
+  <header class="ap-page-head">
+    <h1>EV-TRACS Control Panel</h1>
+    <p class="ap-lead mt-2">
+      Edit scenarios, see what each one has produced, and run the pipeline.
+    </p>
+  </header>
+
+  <div class="row g-4">
 
     <!-- Scenario + editor ---------------------------------------------->
     <div class="col-xl-4 col-lg-6">
-      <div class="card mb-3">
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-sliders text-body-secondary"></i> Scenario
+          </span>
+          <span id="saveState" class="row-note"></span>
+        </div>
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="card-title mb-0">Scenario</h6>
-            <span id="saveState" class="small text-muted"></span>
+          <div class="input-group mb-3">
+            <select id="scenarioSelect" class="form-select"></select>
+            <button class="btn btn-secondary" type="button" id="copyBtn"
+                    title="Copy this scenario to a new folder and scenario file">
+              <i class="bi bi-copy"></i>
+            </button>
           </div>
-          <select id="scenarioSelect" class="form-select form-select-sm mb-2"></select>
-          <div id="scenarioInfo" class="small text-muted mb-3"></div>
+          <div id="scenarioInfo" class="mb-3"></div>
 
           <div id="editor"></div>
 
           <div class="d-flex gap-2 mt-3">
-            <button id="saveBtn" class="btn btn-sm btn-primary" disabled>Save changes</button>
-            <button id="revertBtn" class="btn btn-sm btn-outline-secondary" disabled>Revert</button>
+            <button id="saveBtn" class="btn btn-primary btn-sm" disabled>
+              <i class="bi bi-check2"></i> Save changes
+            </button>
+            <button id="revertBtn" class="btn btn-secondary btn-sm" disabled>Revert</button>
           </div>
-          <div id="saveMsg" class="small mt-2"></div>
+          <div id="saveMsg" class="mt-2" style="font-size:.85rem"></div>
         </div>
       </div>
     </div>
 
-    <!-- Pipeline board ------------------------------------------------->
+    <!-- Pipeline + tasks + tools --------------------------------------->
     <div class="col-xl-4 col-lg-6">
-      <div class="card mb-3">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="card-title mb-0">Pipeline</h6>
-            <span class="small text-muted">
-              <span class="dot dot-ok"></span>ok
-              <span class="dot dot-stale ms-2"></span>stale
-              <span class="dot dot-missing ms-2"></span>missing
-            </span>
-          </div>
-          <div id="board"><div class="text-muted small mt-2">…</div></div>
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-diagram-2 text-body-secondary"></i> Pipeline
+          </span>
+          <span class="row-note">
+            <span class="dot dot-ok"></span>ok
+            <span class="dot dot-stale ms-2"></span>stale
+            <span class="dot dot-missing ms-2"></span>missing
+          </span>
         </div>
+        <div class="card-body"><div id="board"><span class="row-note">…</span></div></div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-play-circle text-body-secondary"></i> Tasks
+          </span>
+        </div>
+        <div class="card-body"><div id="tasks"><span class="row-note">…</span></div></div>
       </div>
 
       <div class="card">
-        <div class="card-body">
-          <h6 class="card-title">Tasks</h6>
-          <div id="tasks"><div class="text-muted small">…</div></div>
+        <div class="card-header">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-window-stack text-body-secondary"></i> Tools
+          </span>
         </div>
+        <div class="card-body"><div id="tools"><span class="row-note">…</span></div></div>
       </div>
     </div>
 
-    <!-- Log ------------------------------------------------------------>
+    <!-- Output --------------------------------------------------------->
     <div class="col-xl-4">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="card-title mb-0">Output</h6>
-            <div>
-              <span id="jobStatus" class="badge bg-secondary">idle</span>
-              <button id="cancelBtn" class="btn btn-sm btn-outline-danger ms-1 d-none">Cancel</button>
-            </div>
-          </div>
-          <div id="log"><span class="text-muted">Select a task to run.</span></div>
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-terminal text-body-secondary"></i> Output
+          </span>
+          <span class="d-flex align-items-center gap-2">
+            <span id="jobStatus" class="ap-pill">idle</span>
+            <button id="cancelBtn" class="btn btn-secondary btn-sm d-none">Cancel</button>
+          </span>
         </div>
+        <div id="log" class="ap-console"></div>
       </div>
 
-      <div class="card mt-3">
-        <div class="card-body">
-          <h6 class="card-title">Recent jobs</h6>
-          <div id="jobs"><div class="text-muted small">none yet</div></div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title d-flex align-items-center gap-2">
+            <i class="bi bi-clock-history text-body-secondary"></i> Recent jobs
+          </span>
         </div>
+        <div class="card-body"><div id="jobs"><span class="row-note">none yet</span></div></div>
       </div>
     </div>
 
   </div>
 
-  <p class="text-muted small mt-3">
-    Same URL space as Live Server &mdash;
-    <a href="/animation.html">animation.html</a>,
-    <a href="/utilities/station_animation.html">station_animation.html</a>,
+  <!-- Run confirmation ------------------------------------------------->
+  <div class="modal fade" id="runModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="runTitle"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p id="runDesc" class="mb-3"></p>
+          <div id="runWarning"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" id="runGo" class="btn btn-primary btn-sm"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copy scenario ---------------------------------------------------->
+  <div class="modal fade" id="copyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Copy scenario</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="row-note" id="copySource"></p>
+          <label class="form-label" for="copyName">New name</label>
+          <input type="text" class="form-control mb-3" id="copyName"
+                 placeholder="e.g. accra high fleet">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="copyOutput">
+            <label class="form-check-label" for="copyOutput">
+              Also copy results
+              <span class="row-note d-block">Off by default &mdash; results are
+                reproducible by re-running, and copying them doubles the disk
+                and the OneDrive sync.</span>
+            </label>
+          </div>
+          <div id="copyPreview" class="row-note"></div>
+          <div id="copyMsg" class="mt-2" style="font-size:.85rem"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" id="copyGo" class="btn btn-primary btn-sm" disabled>
+            Create copy
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder picker ---------------------------------------------------->
+  <div class="modal fade" id="browseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Choose scenario folder</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <button id="browseUp" class="btn btn-secondary btn-sm">
+              <i class="bi bi-arrow-90deg-up"></i>
+            </button>
+            <span id="browsePath" class="mono row-note flex-grow-1"></span>
+          </div>
+          <div id="browseList" class="ap-scroll" style="max-height:320px; overflow-y:auto;"></div>
+        </div>
+        <div class="modal-footer">
+          <span id="browseChosen" class="mono row-note me-auto"></span>
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" id="browseSelect" class="btn btn-primary btn-sm">
+            Use this folder
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="ap-hairline">
+  <p class="row-note">
+    Same URL space as Live Server, so every tool works under either &mdash;
     <a href="/api/docs">API docs</a>.
   </p>
 </div>
 
+<!-- Needed for the folder-picker modal. -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-let TASKS = [], SCENARIO = null, EDITS = {}, currentJob = null, logOffset = 0, poller = null;
+let TASKS = [], TOOLS = [], TOOL_GROUPS = [];
+let SCENARIO = null, EDITS = {}, currentJob = null, logOffset = 0, poller = null;
 
 // Fields the editor exposes with a typed control. Anything in the file but not
 // listed here is still shown and still saved -- the server merges rather than
 // replaces, so an unrecognised key can never be dropped by saving.
 const FIELDS = [
   ["folder_name",          "text",   "Path to the scenario folder, relative to Model/"],
-  ["demand_model",         "bool",   "Use generated demand instead of taxi ranks"],
+  ["simulation_mode",      "mode",   "Which of the three simulation modes to run"],
   ["speed_based_routing",  "bool",   "Route on travel time rather than distance"],
   ["agents",               "ints",   "Fleet size per period, comma separated"],
   ["animation_agents",     "int",    "How many agents animation.html loads"],
@@ -140,9 +299,18 @@ const FIELDS = [
   ["swap_wait_sec",        "int",    ""],
   ["max_total_distance_m", "int",    ""],
   ["buffer_distance",      "int",    ""],
-  ["passenger_max_dist",   "int",    ""],
+  ["passenger_max_dist",   "int",    "Longest fare, metres"],
+  ["passenger_min_dist",   "int",    "Shortest fare, metres (0 for none)"],
   ["simulation_step_sec",  "int",    ""],
-  ["deviation_factor",     "float",  ""],
+  ["deviation_factor",     "float",  "Road distance / straight-line distance"],
+  ["pickup_wait_sec",      "int",    "distribution mode: dwell at the pickup point"],
+];
+
+// Kept in step with SIMULATION_MODES in scenario_config.py.
+const SIM_MODES = [
+  ["hail_rank",    "Hail / rank"],
+  ["demand_model", "Demand model"],
+  ["distribution", "Distribution"],
 ];
 const FIELD_KEYS = new Set(FIELDS.map(f => f[0]));
 
@@ -176,11 +344,12 @@ async function showScenario() {
   EDITS = {};
   markClean();
   $("#scenarioInfo").innerHTML = `
-    <div class="mono" style="font-size:.78rem">${SCENARIO.folder}</div>
-    <span class="badge ${SCENARIO.folder_exists ? "bg-success" : "bg-danger"} mt-1">
+    <div class="mono row-note mb-2">${SCENARIO.folder}</div>
+    <span class="ap-pill ${SCENARIO.folder_exists ? "is-live" : "is-error"}">
       ${SCENARIO.folder_exists ? "folder found" : "folder missing"}</span>`;
   renderEditor();
   renderBoard();
+  if (TOOLS.length) renderTools();   // keep each tool link's ?scenario= current
 }
 
 // ---------- editor ----------
@@ -195,17 +364,20 @@ function renderEditor() {
 
   const unknown = Object.keys(cfg).filter(k => !FIELD_KEYS.has(k));
   if (unknown.length) {
-    rows.push(`<div class="stage-label">not editable here &mdash; preserved on save</div>`);
+    rows.push(`<div class="group-label">not editable here &mdash; preserved on save</div>`);
     for (const k of unknown) {
       const preview = JSON.stringify(cfg[k]);
-      rows.push(`<div class="art unknown px-2">
-          <span class="cfg-key mono">${k}</span>
-          <span class="text-muted mono" style="font-size:.74rem">${
-            preview.length > 34 ? preview.slice(0, 34) + "…" : preview}</span>
+      rows.push(`<div class="row-item is-readonly">
+          <span class="mono">${k}</span>
+          <span class="row-note mono">${
+            preview.length > 30 ? preview.slice(0, 30) + "…" : preview}</span>
         </div>`);
     }
   }
   $("#editor").innerHTML = rows.join("");
+
+  const browseBtn = $("#browseBtn");
+  if (browseBtn) browseBtn.onclick = () => openBrowser(cfg.folder_name);
 
   $("#editor").querySelectorAll("[data-key]").forEach(el => {
     el.oninput = el.onchange = () => {
@@ -226,17 +398,32 @@ function fieldRow(key, type, value, help) {
   const common = `data-key="${key}" data-type="${type}" class="form-control form-control-sm cfg-input"`;
   let control;
   if (type === "bool") {
-    control = `<input type="checkbox" data-key="${key}" data-type="bool"
-                 class="form-check-input" ${value ? "checked" : ""}>`;
+    control = `<div class="form-check form-switch mb-0">
+        <input type="checkbox" data-key="${key}" data-type="bool"
+               class="form-check-input" ${value ? "checked" : ""}>
+      </div>`;
+  } else if (type === "mode") {
+    const opts = SIM_MODES.map(([v, label]) =>
+      `<option value="${v}" ${v === value ? "selected" : ""}>${label}</option>`).join("");
+    control = `<select ${common} style="max-width:14rem">${opts}</select>`;
   } else if (type === "ints") {
-    control = `<input type="text" ${common} value="${value.join(", ")}" style="max-width:15rem">`;
+    control = `<input type="text" ${common} value="${value.join(", ")}">`;
+  } else if (key === "folder_name") {
+    // A browser cannot produce a filesystem path from a native picker, so the
+    // Browse button opens a directory listing served by /api/browse instead.
+    control = `<span class="input-group input-group-sm" style="max-width:14rem">
+        <input type="text" ${common} style="max-width:none"
+               value="${String(value).replace(/"/g, "&quot;")}">
+        <button class="btn btn-secondary" type="button" id="browseBtn"
+                title="Browse for a folder"><i class="bi bi-folder2-open"></i></button>
+      </span>`;
   } else {
     control = `<input type="${type === "text" ? "text" : "number"}"
                  ${type === "float" ? 'step="any"' : ""} ${common}
-                 value="${String(value).replace(/"/g, "&quot;")}" style="max-width:15rem">`;
+                 value="${String(value).replace(/"/g, "&quot;")}">`;
   }
-  return `<div class="art">
-      <span class="cfg-key mono" title="${help}">${key}</span>
+  return `<div class="row-item">
+      <span class="mono" title="${help}">${key}</span>
       <span>${control}</span>
     </div>`;
 }
@@ -257,8 +444,8 @@ function parseField(type, raw) {
 function markDirty() {
   const n = Object.keys(EDITS).length;
   $("#saveBtn").disabled = $("#revertBtn").disabled = n === 0;
-  $("#saveState").textContent = n ? `${n} unsaved change${n > 1 ? "s" : ""}` : "";
-  $("#saveState").className = "small " + (n ? "text-warning-emphasis fw-semibold" : "text-muted");
+  $("#saveState").innerHTML = n
+    ? `<span class="ap-pill is-warn">${n} unsaved</span>` : "";
 }
 function markClean() { EDITS = {}; markDirty(); $("#saveMsg").textContent = ""; }
 
@@ -271,15 +458,118 @@ $("#saveBtn").onclick = async () => {
     });
     SCENARIO = { ...SCENARIO, ...r };
     markClean();
-    $("#saveMsg").innerHTML = `<span class="text-success">Saved.</span>`;
+    $("#saveMsg").innerHTML = `<span class="ap-pill is-live">Saved</span>`;
     renderEditor(); renderBoard();
   } catch (e) {
-    $("#saveMsg").innerHTML = `<span class="text-danger">${e.message}</span>` +
-      (e.status === 409 ? ` <button class="btn btn-sm btn-link p-0" onclick="showScenario()">reload</button>` : "");
+    $("#saveMsg").innerHTML = `<span class="ap-pill is-error">${e.message}</span>` +
+      (e.status === 409 ? ` <button class="btn btn-link btn-sm p-0" onclick="showScenario()">reload</button>` : "");
     $("#saveBtn").disabled = false;
   }
 };
 $("#revertBtn").onclick = () => { renderEditor(); markClean(); };
+
+// ---------- copy scenario ----------
+const copyModal = new bootstrap.Modal($("#copyModal"));
+
+function slug(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "copy";
+}
+
+$("#copyBtn").onclick = () => {
+  $("#copySource").textContent =
+    `Copying ${SCENARIO.file} and everything in ${SCENARIO.folder_name}.`;
+  $("#copyName").value = "";
+  $("#copyOutput").checked = false;
+  $("#copyMsg").textContent = "";
+  updateCopyPreview();
+  copyModal.show();
+  setTimeout(() => $("#copyName").focus(), 200);
+};
+
+// Show what will be created before it is, so the names are never a surprise.
+function updateCopyPreview() {
+  const name = $("#copyName").value.trim();
+  $("#copyGo").disabled = !name;
+  if (!name) { $("#copyPreview").textContent = ""; return; }
+  const parent = String(SCENARIO.folder_name).replace(/\/[^/]*$/, "");
+  $("#copyPreview").innerHTML = `Will create:
+    <div class="mono mt-1">scenario_${slug(name)}.json</div>
+    <div class="mono">${parent}/${name}</div>`;
+}
+$("#copyName").oninput = updateCopyPreview;
+
+$("#copyGo").onclick = async () => {
+  $("#copyGo").disabled = true;
+  $("#copyMsg").innerHTML = '<span class="ap-pill">copying…</span>';
+  try {
+    const r = await api(`/api/scenarios/${encodeURIComponent(SCENARIO.file)}/copy`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_name: $("#copyName").value.trim(),
+                             include_output: $("#copyOutput").checked })
+    });
+    copyModal.hide();
+    await loadScenarios();
+    // Switch to the copy: making one and then having to find it is a poor trade.
+    $("#scenarioSelect").value = r.scenario_file;
+    await showScenario();
+    $("#saveMsg").innerHTML =
+      `<span class="ap-pill is-live">Created ${r.scenario_file} (${r.size_mb} MB)</span>`;
+  } catch (e) {
+    $("#copyMsg").innerHTML = `<span class="ap-pill is-error">${e.message}</span>`;
+    $("#copyGo").disabled = false;
+  }
+};
+
+// ---------- folder picker ----------
+// The browser cannot hand a page a filesystem path -- neither <input
+// webkitdirectory> nor showDirectoryPicker() exposes one -- so this walks
+// /api/browse and writes the chosen path straight into the folder_name field.
+let browseAt = null;
+const browseModal = new bootstrap.Modal($("#browseModal"));
+
+async function openBrowser(startFrom) {
+  // Open where the current value points, so the folder you want is usually
+  // already on screen. Falls back to the root if it no longer exists.
+  const parent = String(startFrom || "").replace(/\/[^/]*$/, "");
+  try { await browseTo(parent || ".."); }
+  catch { await browseTo(".."); }
+  browseModal.show();
+}
+
+async function browseTo(path) {
+  const d = await api(`/api/browse?path=${encodeURIComponent(path)}`);
+  browseAt = d;
+  $("#browsePath").textContent = d.path === "." ? "Model" : d.path;
+  $("#browseUp").disabled = !d.parent;
+  $("#browseChosen").textContent = d.path;
+  $("#browseSelect").disabled = d.path === "." || !d.path;
+
+  $("#browseList").innerHTML = d.entries.length
+    ? d.entries.map(e => `
+        <div class="row-item" data-dir="${e.path.replace(/"/g, "&quot;")}"
+             style="cursor:pointer">
+          <span><i class="bi ${e.is_scenario ? "bi-folder-check" : "bi-folder"} me-2"></i>${e.name}</span>
+          <span class="row-note">${
+            e.is_scenario ? "scenario" + (e.has_output ? " · has output" : "") : ""
+          } <i class="bi bi-chevron-right ms-2"></i></span>
+        </div>`).join("")
+    : '<div class="row-note p-2">No sub-folders here.</div>';
+
+  $("#browseList").querySelectorAll("[data-dir]").forEach(el =>
+    el.onclick = () => browseTo(el.dataset.dir));
+}
+
+$("#browseUp").onclick = () => { if (browseAt && browseAt.parent) browseTo(browseAt.parent); };
+
+$("#browseSelect").onclick = () => {
+  if (!browseAt) return;
+  const input = document.querySelector('[data-key="folder_name"]');
+  if (input) {
+    input.value = browseAt.path;
+    input.dispatchEvent(new Event("input"));   // reuse the normal dirty-tracking
+  }
+  browseModal.hide();
+};
 
 // ---------- pipeline board ----------
 function renderBoard() {
@@ -288,17 +578,17 @@ function renderBoard() {
 
   $("#board").innerHTML = (SCENARIO.stages || Object.keys(byStage)).map(stage => {
     const items = byStage[stage] || [];
-    return `<div class="stage-label">${stage}</div>` + items.map(a => `
-      <div class="art" title="${a.path}">
+    return `<div class="group-label">${stage}</div>` + items.map(a => `
+      <div class="row-item" title="${a.path}">
         <span><span class="dot dot-${a.status}"></span>${a.label}</span>
-        <span class="text-muted" style="font-size:.78rem">${describe(a)}</span>
+        <span class="row-note">${describe(a)}</span>
       </div>`).join("");
   }).join("");
 }
 
 function describe(a) {
   if (a.status === "missing")  return "missing";
-  if (a.status === "optional") return "not used";
+  if (a.status === "optional") return "not used in this mode";
   if (a.status === "stale")
     return `stale &mdash; ${a.stale_because.join(", ")} is newer`;
   if (a.count !== undefined) return `${a.count} files`;
@@ -317,17 +607,21 @@ async function loadTasks() {
   for (const t of tasks) (byStage[t.stage] ||= []).push(t);
 
   $("#tasks").innerHTML = Object.entries(byStage).map(([stage, items]) => `
-    <div class="stage-label">${stage}</div>
+    <div class="group-label">${stage}</div>
     ${items.map(t => `
-      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
-        <div class="me-2">
-          <div class="small fw-semibold">${t.label}
+      <div class="row-item">
+        <span class="me-2">
+          <span class="d-block">${t.label}
             ${t.safety === "destructive"
-              ? '<span class="badge bg-warning text-dark ms-1">destructive</span>' : ""}
-          </div>
-          <div class="text-muted" style="font-size:.76rem">${t.description}</div>
-        </div>
-        <button class="btn btn-sm ${t.runnable ? "btn-primary" : "btn-outline-secondary"}"
+              ? '<span class="ap-pill is-error ms-1">terminal only</span>' : ""}
+            ${t.irreversible
+              ? '<span class="ap-pill is-error ms-1">no undo</span>'
+              : t.needs_confirmation
+              ? '<span class="ap-pill is-warn ms-1">confirms</span>' : ""}
+          </span>
+          <span class="row-note">${t.description}</span>
+        </span>
+        <button class="btn btn-sm ${t.runnable ? "btn-primary" : "btn-secondary"}"
                 data-task="${t.id}" ${t.runnable ? "" : "disabled"}
                 title="${t.runnable ? "" : "Blocked: run this from a terminal"}">Run</button>
       </div>`).join("")}
@@ -337,13 +631,110 @@ async function loadTasks() {
     b.onclick = () => runTask(b.dataset.task));
 }
 
+// ---------- tools ----------
+async function loadTools() {
+  const r = await api("/api/tools");
+  TOOLS = r.tools; TOOL_GROUPS = r.groups;
+  renderTools();
+}
+
+// Re-rendered whenever the scenario changes, so the ?scenario= on each link
+// always matches what the picker currently shows.
+function renderTools() {
+  const scenario = $("#scenarioSelect").value;
+  const byGroup = {};
+  for (const t of TOOLS) (byGroup[t.group] ||= []).push(t);
+
+  const titles = { view: "view & animate", edit: "edit inputs" };
+  $("#tools").innerHTML = TOOL_GROUPS.map(g => `
+    <div class="group-label">${titles[g] || g}</div>
+    ${(byGroup[g] || []).map(t => {
+      if (!t.exists) return `
+        <div class="row-item row-note">
+          <span>${t.label}</span><span>missing</span>
+        </div>`;
+      const href = t.accepts_scenario
+        ? `${t.url}?scenario=${encodeURIComponent(scenario)}` : t.url;
+      const tag = t.accepts_scenario
+        ? `<span class="ap-pill is-info ms-1"
+                 title="Opens showing the scenario selected above. Opened directly
+                        it falls back to scenario.json.">${scenario.replace(/\.json$/, "")}</span>`
+        : "";
+      return `
+        <a class="row-item" href="${href}" target="_blank" rel="noopener"
+           title="${t.description}">
+          <span>${t.label}${tag}</span>
+          <span class="row-note"><i class="bi bi-box-arrow-up-right"></i></span>
+        </a>`;
+    }).join("")}
+  `).join("");
+}
+
 // ---------- jobs ----------
+const runModal = new bootstrap.Modal($("#runModal"));
+
+// Ask before anything that replaces work. The server refuses these without
+// confirm:true anyway, so dismissing the dialog cannot be worked around -- but
+// the dialog is where the consequence gets explained, so it names the actual
+// files rather than asking a generic "are you sure".
+function confirmRun(task, scenario) {
+  return new Promise(async resolve => {
+    $("#runTitle").textContent = `${task.label}`;
+    $("#runDesc").innerHTML =
+      `${task.description}<div class="row-note mt-2">Scenario: <span class="mono">${scenario}</span></div>`;
+
+    let warning = "";
+    if (task.irreversible) {
+      let files = [];
+      try {
+        const impact = await api(
+          `/api/tasks/${task.id}/impact?scenario=${encodeURIComponent(scenario)}`);
+        files = impact.overwrites.filter(f => f.exists);
+      } catch { /* fall through to the generic wording */ }
+
+      warning = `
+        <div class="alert alert-danger mb-0">
+          <strong><i class="bi bi-exclamation-triangle me-1"></i>This cannot be undone.</strong>
+          <div class="mt-2">No backup is kept. OSM data changes over time, so the
+            replacement will not match what your existing results were built
+            against.</div>
+          ${files.length ? `<div class="mt-2">Will be overwritten:</div>
+            <ul class="mb-0 mt-1">${files.map(f =>
+              `<li class="mono" style="font-size:.82rem">${f.path}
+                 <span class="row-note">${f.size_mb} MB</span></li>`).join("")}</ul>`
+            : `<div class="mt-2 row-note">Nothing to overwrite &mdash; these files
+                 do not exist yet.</div>`}
+        </div>`;
+    }
+    $("#runWarning").innerHTML = warning;
+
+    const go = $("#runGo");
+    go.className = `btn btn-sm ${task.irreversible ? "btn-danger" : "btn-primary"}`;
+    go.textContent = task.irreversible ? "Overwrite and download" : "Run";
+
+    let done = false;
+    const finish = ok => { if (!done) { done = true; resolve(ok); } };
+    go.onclick = () => { runModal.hide(); finish(true); };
+    $("#runModal").addEventListener("hidden.bs.modal",
+                                    () => finish(false), { once: true });
+    runModal.show();
+  });
+}
+
 async function runTask(taskId) {
+  const task = TASKS.find(t => t.id === taskId);
+  const scenario = $("#scenarioSelect").value;
+
+  if (task && task.needs_confirmation) {
+    if (!await confirmRun(task, scenario)) return;
+  }
+
   setLog("");
   try {
     currentJob = await api("/api/jobs", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task: taskId, scenario: $("#scenarioSelect").value })
+      body: JSON.stringify({ task: taskId, scenario,
+                             confirm: !!(task && task.needs_confirmation) })
     });
   } catch (e) { setLog(`<span class="fail">${e.message}</span>`); return; }
   logOffset = 0;
@@ -369,7 +760,6 @@ async function pollLog() {
 
 function appendLog(lines) {
   const el = $("#log");
-  if (el.querySelector(".text-muted")) el.innerHTML = "";
   for (const line of lines) {
     const div = document.createElement("div");
     div.className = line.startsWith("$ ") ? "cmd"
@@ -383,19 +773,19 @@ function appendLog(lines) {
 function setLog(html) { $("#log").innerHTML = html; }
 
 function setStatus(status, duration) {
-  const cls = { running: "bg-primary", succeeded: "bg-success", failed: "bg-danger",
-                cancelled: "bg-secondary", queued: "bg-secondary" }[status] || "bg-secondary";
-  $("#jobStatus").className = `badge ${cls}`;
+  const cls = { running: "is-info", succeeded: "is-live",
+                failed: "is-error", cancelled: "", queued: "" }[status] || "";
+  $("#jobStatus").className = `ap-pill ${cls}`;
   $("#jobStatus").textContent = duration != null ? `${status} · ${duration}s` : status;
 }
 
 async function loadJobs() {
   const { jobs } = await api("/api/jobs");
   $("#jobs").innerHTML = jobs.length ? jobs.slice(0, 8).map(j => `
-    <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.8rem">
-      <span>${j.task_label} <span class="text-muted mono">${j.scenario}</span></span>
-      <span class="text-muted">${j.status} · ${j.duration_s ?? "–"}s</span>
-    </div>`).join("") : '<div class="text-muted small">none yet</div>';
+    <div class="row-item">
+      <span>${j.task_label} <span class="row-note mono">${j.scenario}</span></span>
+      <span class="row-note">${j.status} · ${j.duration_s ?? "–"}s</span>
+    </div>`).join("") : '<span class="row-note">none yet</span>';
 }
 
 $("#cancelBtn").onclick = async () => {
@@ -410,11 +800,17 @@ $("#scenarioSelect").onchange = () => {
 (async function init() {
   try {
     const h = await api("/api/health");
-    $("#health").textContent = h.python.split(/[\\/]/).slice(-3).join("/");
+    $("#health").className = "ap-pill is-live";
+    $("#health").innerHTML =
+      `<span class="mono">${h.python.split(/[\\/]/).slice(-3).join("/")}</span>`;
     await loadScenarios();
     await loadTasks();
+    await loadTools();
     await loadJobs();
-  } catch (e) { $("#health").textContent = "error: " + e.message; }
+  } catch (e) {
+    $("#health").className = "ap-pill is-error";
+    $("#health").textContent = "error: " + e.message;
+  }
 })();
 </script>
 </body>

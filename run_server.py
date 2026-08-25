@@ -4,7 +4,7 @@ Start the local model server.
     venv\\Scripts\\python.exe run_server.py
 
 Then open http://127.0.0.1:8000/app/ for the control panel, or
-http://127.0.0.1:8000/animation.html for the existing tools -- the URL space is
+http://127.0.0.1:8000/animation/animation.html for the existing tools -- the URL space is
 the same one Live Server serves, so both work under either.
 
 Binds to 127.0.0.1 only. Live Server binds 0.0.0.0, which puts the Model folder
@@ -42,7 +42,7 @@ def main():
         print(f"Mounted      : {route} -> {directory}")
     print(f"Interpreter  : {sys.executable}")
     print(f"Control panel: http://{args.host}:{args.port}/app/")
-    print(f"Animation    : http://{args.host}:{args.port}/animation.html")
+    print(f"Animation    : http://{args.host}:{args.port}/animation/animation.html")
 
     uvicorn.run("mim.api:app" if args.reload else app,
                 host=args.host, port=args.port, reload=args.reload,
